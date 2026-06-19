@@ -1,0 +1,17 @@
+# Normalise line endings: LF in the repo, native on checkout.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Treat these as binary (no EOL/diff munging).
+*.png binary
+*.ico binary
+*.icns binary
+*.svg binary
+*.mp3 binary
+*.pdf binary
+*.min.js binary
+*.min.mjs binary

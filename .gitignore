@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+build-temp/
+
+# Runtime-fetched binaries — root vendor/ only.
+# NOTE: renderer/vendor/ (hls, wavesurfer, pdfjs, fabric, lucide) IS committed.
+/vendor/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editors / IDE / local tooling
+.vscode/
+.idea/
+*.swp
+*~

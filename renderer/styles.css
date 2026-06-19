@@ -1,0 +1,5173 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   FLUX — Styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ─── THEME VARIABLES (Material — sidebar darker than body) ───────────────── */
+:root, body[data-theme="dark"] {
+  --sidebar-bg: #0b0b0b;   /* sidebar: near-black */
+  --bg:         #1d1d1d;   /* content area: clearly lighter than sidebar */
+  --bg2:        #262626;   /* cards/panels (raised one level) */
+  --bg3:        #353535;   /* inputs/inner controls (raised one more — bumped 2026-05-18 for visible recess) */
+  --border:     #2f2f2f;
+  --border2:    #3a3a3a;
+  --text:       #ececec;
+  --text-dim:   #b8b8b8;
+  --text-muted: #808080;
+  --accent:     #c8f542;   /* electric lime — brand */
+  --accent2:    #3dffa0;   /* mint secondary */
+  --danger:     #ff5a5a;
+  --warning:    #ffb700;
+  --primary-fg: #0a0a0a;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.55), 0 1px 8px rgba(0,0,0,0.35);
+  --shadow-elev: 0 2px 6px rgba(0,0,0,0.45), 0 4px 16px rgba(0,0,0,0.35);
+}
+
+body[data-theme="light"] {
+  --sidebar-bg: #ffffff;   /* sidebar: white */
+  --bg:         #f4f4f5;   /* content: light grey */
+  --bg2:        #ffffff;   /* cards: white on light grey */
+  --bg3:        #eaeaec;   /* inputs: visibly recessed against white cards (bumped 2026-05-18) */
+  --border:     #e4e4e7;
+  --border2:    #d4d4d8;
+  --text:       #18181b;
+  --text-dim:   #52525b;
+  --text-muted: #71717a;
+  /* Brand accent stays the FLUX electric lime in light mode too — same hue as
+     dark theme. It reads well as a BACKGROUND (with near-black --primary-fg text)
+     but is low-contrast as a FOREGROUND on white, so accent text/icons get a
+     thin dark halo in the light-theme tuning block further down. */
+  --accent:     #c8f542;
+  --accent2:    #009b5a;
+  --danger:     #c0202c;
+  --warning:    #b06a00;
+  /* Text colour ON the accent (active nav row, primary buttons). Yellow
+     accent + white text = unreadable; we use near-black so contrast is high. */
+  --primary-fg: #18181b;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.10);
+  --shadow-elev: 0 2px 6px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.10);
+}
+
+/* ── Light-theme contrast ────────────────────────────────────────────────────
+   The bright lime accent is very light on white. As a BACKGROUND it pairs with
+   dark --primary-fg text; as a FOREGROUND (text/links) it's rendered DARK for
+   readability — lime stays on fills, active states, and icon hover. */
+
+/* Top logo: the brand keeps its neon-green (lime) even on the white sidebar
+   (owner's call). Only on the home-active lime background it flips to dark. */
+body[data-theme="light"] .logo-mark,
+body[data-theme="light"] .logo-sub { color: var(--accent); }
+body[data-theme="light"] .sidebar-logo.is-home-active .logo-mark,
+body[data-theme="light"] .sidebar-logo.is-home-active .logo-sub { color: var(--primary-fg); }
+
+/* Accent text reads poorly as lime on white, and a dark outline made it look
+   muddy/green. So accent FOREGROUND (links, F·L·U·X initials, card-title
+   initials, donate title, link-buttons) renders DARK in light theme. The bright
+   lime stays for backgrounds/buttons/active states + icon hover. */
+body[data-theme="light"] a:not(.donate-option),
+body[data-theme="light"] .nav-group-label::first-letter,
+body[data-theme="light"] .home-card-title > span:last-child::first-letter,
+body[data-theme="light"] .home-hero-donate .home-hero-title,
+body[data-theme="light"] .app-footer .link-button:hover,
+body[data-theme="light"] .home-hero-tos-link,
+body[data-theme="light"] .home-hero-tos-link:hover {
+  color: var(--text);
+  text-shadow: none;
+}
+
+/* Icons: no shadow on white (it looked bad). Render them dark so lime/accent
+   icons read as black; the delete (danger) icon keeps its red. */
+body[data-theme="light"] [data-lucide-icon] svg,
+body[data-theme="light"] .lucide-slot svg { filter: none; stroke: var(--text); }
+body[data-theme="light"] .btn-icon-danger [data-lucide-icon] svg,
+body[data-theme="light"] .btn-icon-danger .lucide-slot svg { stroke: var(--danger); }
+/* Topbar download/identify: keep the FLUX lime on hover and the active state. */
+body[data-theme="light"] .topbar-download:hover svg,
+body[data-theme="light"] .topbar-download.has-downloads svg,
+body[data-theme="light"] .topbar-identify:hover svg { stroke: var(--accent); }
+
+/* Toggle: clearly "marked" — solid lime fill + dark knob + dark border when on. */
+body[data-theme="light"] .toggle input:checked + .toggle-track {
+  background: var(--accent) !important;
+  border-color: rgba(0,0,0,0.55) !important;
+}
+body[data-theme="light"] .toggle input:checked + .toggle-track::after {
+  background: var(--primary-fg);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
+}
+
+/* Selected radio-card (theme picker, format presets…): solid lime + dark text. */
+body[data-theme="light"] .radio-card:has(input:checked) {
+  background: var(--accent);
+  color: var(--primary-fg);
+  border-color: rgba(0,0,0,0.5);
+}
+
+/* Volume slider: only the thin inner track goes dark (the element bg IS the
+   4px track) so the lime thumb stands out — not the whole control. */
+body[data-theme="light"] .footer-volume-slider { background: #2a2a2a; }
+
+:root {
+  --mono:      'Roboto', sans-serif;
+  --sans:      'Syne', sans-serif;
+  --radius:    0;            /* Modern flat — all corners squared */
+  --radius-sm: 0;
+  --sidebar-w: 200px;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { font-family: 'Roboto', sans-serif; }
+.modal-title, .settings-section-title { font-family: 'Syne', sans-serif; }
+/* Page titles use the brand logo font (Audiowide — matches the FLUX Hub wordmark). */
+.tab-header h1 { font-family: 'Audiowide', 'Syne', sans-serif; }
+code { font-family: monospace; }
+
+/* Hyperlinks default to the brand accent (lime in dark / amber in light, via --accent). */
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+/* Anchors that act as cards/buttons keep normal text colour. */
+.donate-option { color: var(--text); }
+
+/* ─── LAYOUT ──────────────────────────────────────────────────────────────── */
+/* Sidebar = full-height left column. main-area = topbar + content + footer
+   stacked vertically. Borders on sidebar-logo / topbar align horizontally;
+   sidebar-toggle / app-footer align at the bottom. */
+body {
+  display: flex;
+  height: 100vh;
+}
+.app-shell {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+}
+
+/* Topbar (above content) — visually continuous with sidebar logo to its left.
+   No border anywhere; same bg as sidebar. Content area's bg color difference
+   separates the dark top strip from the content area below. */
+.topbar {
+  flex-shrink: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0;                /* flush — children manage their own internal spacing */
+  background: var(--sidebar-bg);
+  color: var(--text);
+  /* Positioned ancestor for the collapsed music badge's absolute centering
+     (so left: 50% means viewport-50%, not topbar-center-50%). */
+  position: relative;
+}
+.topbar-title {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text);
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+}
+/* Right-side topbar group — standalone icons (identify, download tracker) sit
+   just left of the player widget which is flush to the window edge. */
+.topbar-left {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 0 1px;
+  width: 45px;
+  height: 60px;
+  background: var(--accent);
+  transition: background 0.15s;
+  cursor: pointer;
+}
+/* Hover on the whole flag swaps to a black panel with white icon — clean
+   inverse of the resting state, keeps the CTA feel intact. */
+.topbar-left:hover { background: #000; }
+.topbar-left:hover .btn-icon { color: #fff; opacity: 1; }
+.topbar-left .btn-icon {
+  color: #000;
+  width: auto;
+  height: auto;
+  background: transparent;
+  border: none;
+}
+.topbar-left .btn-icon svg { width: 20px; height: 20px; }
+.topbar-left .download-badge {
+  /* Keep the counter visible against the accent fill — invert its colours. */
+  background: #000;
+  color: var(--accent);
+}
+.topbar-left:hover .download-badge {
+  background: var(--accent);
+  color: #000;
+}
+/* Centre column hosts the music player widget. flex:1 + justify-content
+   centers the player even when the left/right groups have different widths. */
+.topbar-center {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+}
+.topbar-divider {
+  display: inline-block;
+  width: 1px;
+  height: 24px;
+  background: var(--border2);
+  margin: 0 4px;
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
+  margin-right: 0;
+  padding-right: 0;
+}
+.topbar-identify, .topbar-download {
+  position: relative;
+  background: transparent;
+  border: none;
+  width: 36px;
+  height: 36px;
+  color: var(--text-dim);
+}
+.topbar-identify:hover, .topbar-download:hover { color: var(--text); }
+.topbar-download .download-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  /* Counter pill — explicit circular shape despite the global flat design.
+     Uses the FLUX brand lime so it reads as a "live count" indicator. */
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--primary-fg);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--sidebar-bg);
+}
+.topbar-download .download-badge.hidden { display: none; }
+/* When every queued download has finished (zero entries still running),
+   swap the lime counter to the standard "done" green so the user gets a
+   final visual confirmation without opening the popup. */
+.topbar-download .download-badge.all-done { background: var(--accent2); }
+.topbar-download.has-downloads { color: var(--accent); }
+/* Aggregate progress strip under the topbar download icon — browser-style
+   indicator. Implemented as the button's pseudo-element "bottom border"
+   so it's immune to flex/stacking quirks of inner spans. Width driven by
+   a CSS variable set from JS. Hidden when no downloads are running
+   (zero-width = invisible) — no extra .hidden toggling needed. */
+.topbar-download::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: var(--dl-progress, 0%);
+  background: var(--accent);
+  transition: width 0.2s ease, background 0.2s;
+  pointer-events: none;
+  z-index: 2;
+}
+.topbar-download.all-downloads-done::after {
+  background: var(--accent2);   /* terminal "everything finished" colour */
+}
+
+/* Player widget inside topbar — takes ~half of the topbar width on wide
+   screens. min-width keeps it readable on narrow ones; max-width: 50vw
+   prevents it from devouring the whole bar on ultrawide. Title stretches
+   to fill, buttons stay flush right via flex layout. */
+/* Shared solid background for the player + action cards so the leading
+   music badge and trailing settings badge can merge into their edges via
+   margin: -1px (the matching solid color hides the border seam). The
+   previous semi-transparent rgba(255,255,255,0.03) showed the underlying
+   sidebar through the merge gap. */
+/* GLOBAL scrollbar style — applies to every scrollable surface in the app
+   (modals, logs, lists, vendor canvases). Same recipe used by the sidebar
+   `.nav-scroll` and the few per-class overrides scattered through the
+   stylesheet: 3 px wide, transparent track, thin accent-border thumb. The
+   global selector catches anything that wasn't styled explicitly so default
+   OS scrollbars never show up in FLUX. Per-element overrides downstream
+   still win (specificity) so existing custom styles are unaffected. */
+::-webkit-scrollbar              { width: 6px; height: 6px; }
+::-webkit-scrollbar-track        { background: transparent; }
+::-webkit-scrollbar-thumb        { background: var(--border2); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover  { background: var(--text-dim); }
+::-webkit-scrollbar-corner       { background: transparent; }
+/* Firefox / standards fallback (Electron uses Chromium, but harmless and
+   future-proofs if anything ships in Edge / Firefox-shell variants). */
+* { scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+
+:root {
+  --topbar-card-bg: #1c1c1c;
+}
+body[data-theme="light"] { --topbar-card-bg: #ececec; }
+
+.topbar-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1 auto;
+  min-width: 360px;
+  max-width: 60vw;
+  padding: 4px 14px 4px 12px;
+  background: var(--topbar-card-bg);
+  border: 1px solid var(--border);
+  /* No border-radius — the music badge sibling provides the rounded left
+     edge of the combined shape; the right side stays flat per user spec. */
+  /* Two-stage collapse animation orchestrated by JS (see toggleTopbarCard
+     in renderer.js): first the card fades out via .fading-out, THEN the
+     class flips to .collapsed which removes it from the layout flow. The
+     icon is FLIP-animated separately so it visibly slides between its
+     "next to the card" position and its "centered drop-tab" position. */
+  transition: opacity 0.25s ease, max-width 0.35s ease, padding 0.35s ease, border-width 0.35s ease;
+  overflow: hidden;
+}
+.topbar-player.fading-out { opacity: 0; }
+/* Same fade-out trigger for the right-side actions card. Without this the
+   opacity never animates, so toggleTopbarCard's `transitionend` (which waits
+   for the opacity transition) never fires and the card never collapses. */
+.topbar-actions-card.fading-out { opacity: 0; }
+/* Skip transitions during the initial paint when the card is restored as
+   collapsed from saved config — otherwise the user sees a 0.35s "open
+   then immediately close" sequence every boot. */
+.topbar-player.no-anim, .topbar-actions-card.no-anim { transition: none !important; }
+.topbar-player.no-anim ~ .topbar-player-icon,
+.topbar-right:has(.topbar-actions-card.no-anim) .topbar-settings-icon { transition: none !important; }
+.topbar-player.collapsed {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-left-width: 0;
+  border-right-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Icon transitions for the smooth border/radius morph BETWEEN states. The
+   transform property is driven by the FLIP technique in JS (sets a delta
+   transform, then animates it back to 0). */
+.topbar-player-icon,
+.topbar-settings-icon {
+  transition:
+    transform   0.35s ease,
+    border-radius 0.35s ease,
+    border-color  0.35s ease,
+    width  0.35s ease,
+    height 0.35s ease,
+    top    0.35s ease,
+    left   0.35s ease,
+    margin 0.35s ease;
+}
+
+.topbar-actions-card {
+  /* Same collapse animation as the player, but slides toward the settings
+     badge on the LEFT instead of right. */
+  transition: max-width 0.35s ease, opacity 0.25s ease, padding 0.35s ease, border-width 0.35s ease;
+  overflow: hidden;
+  max-width: 200px;
+}
+.topbar-actions-card.collapsed {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-left-width: 0;
+  border-right-width: 0;
+  opacity: 0;
+}
+
+/* When the adjacent card is collapsed, the lone badge reshapes into a
+   tab — full border, rounded BOTTOM corners only — and shifts via position:
+   relative + left/top to land in a balanced spot vs. the viewport edges.
+   :has() is supported in Chromium ≥ 105 (Electron 42 ships with 130+).
+   `position: relative` is required so `left` / `top` actually take effect
+   (without it the values are no-ops on a default `static` element). */
+.topbar-center:has(.topbar-player.collapsed) .topbar-player-icon {
+  position: absolute;
+  left: 48%;
+  top: -1px;
+  margin: 0;
+  transform: none;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  z-index: 12;
+}
+/* Settings has NO collapse-state restyle — it keeps the same shape whether
+   the actions card is open or collapsed (the user explicitly asked for the
+   music drop-tab look NOT to mirror on settings). */
+
+/* Music badge — sibling of .topbar-player, lives in .topbar-center. The
+   user-validated recipe: margin-right: -1px to merge into the player card,
+   no right border, rounded left only, same solid background as the card.
+   margin-top: -16px lifts the badge so it floats half-above the topbar
+   baseline ("decorative cap" sticking out of the player card). */
+.topbar-player-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--topbar-card-bg);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  flex-shrink: 0;
+  z-index: 11;
+  cursor: pointer;
+}
+/* Fade for the icon swap during the music-icon cycle (.is-playing only). */
+.topbar-player-icon .lucide-slot { transition: opacity 0.35s ease; }
+.topbar-player-icon.fading .lucide-slot { opacity: 0; }
+.topbar-player-icon,
+.topbar-settings-icon {
+  width: 28px; height: 28px;
+  margin-top: -13px;
+  margin-right: -1px;
+  border-right: none;
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+.topbar-player-icon svg { width: 16px; height: 16px; }
+
+/* All buttons inside the player card share the same delicate frame —
+   subtle background, soft border, normal icon color. Includes identify,
+   play/pause, stop, prev, next, download-icy. The previous accent-filled
+   identify looked out of place; uniform styling reads as a coherent
+   "player toolbar" instead of one CTA highlighted differently. */
+.topbar-player .btn-icon {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  width: 30px; height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.topbar-player .btn-icon:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border-color: var(--border2, var(--border));
+}
+.topbar-player .btn-icon:disabled { opacity: 0.4; }
+.topbar-player .btn-icon svg { width: 15px; height: 15px; }
+/* Stop button keeps the danger tint on hover so the destructive action is
+   distinguishable when active. */
+.topbar-player .btn-icon-danger:not(:disabled) { color: #d33; }
+.topbar-player .btn-icon-danger:hover:not(:disabled) { background: rgba(211, 51, 51, 0.12); border-color: rgba(211, 51, 51, 0.4); color: #d33; }
+/* Download (ICY radio rip) button — accent border to highlight the
+   "save this track" CTA. Stands out from the other neutral player buttons
+   without going full accent fill (which would compete with the music
+   badge to the left). */
+.topbar-player #global-player-download-icy {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.topbar-player #global-player-download-icy:hover:not(:disabled) {
+  background: rgba(200, 245, 66, 0.16);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+body[data-theme="light"] .topbar-player .btn-icon { background: rgba(0, 0, 0, 0.04); }
+body[data-theme="light"] .topbar-player .btn-icon:hover:not(:disabled) { background: rgba(0, 0, 0, 0.07); }
+
+/* Settings icon — left cap of the right group, inherits .topbar-player-badge
+   structure (solid bg, soft border, rounded LEFT, merges right into the
+   actions card via margin-right: -1px). Same elevation as the music icon
+   so left/right are visually balanced. Hover doesn't paint accent (user
+   asked for delicate, non-flashy buttons). */
+.topbar-settings-icon { cursor: pointer; }
+.topbar-settings-icon:hover { color: var(--text); }
+/* Gear spins on hover — pure cosmetic affordance to make the icon feel
+   alive (user asked for an animation here; the rest of the topbar icons
+   stay static for consistency). Targets the inner lucide-slot SVG so
+   the button's hover state (color change above) is independent. */
+.topbar-settings-icon .lucide-slot svg {
+  transition: transform 0.4s cubic-bezier(.45,.05,.2,1);
+}
+.topbar-settings-icon:hover .lucide-slot svg {
+  transform: rotate(60deg);
+}
+
+/* Right-side actions card — hosts bell / logs / shortcut. Same background
+   + border treatment as the player card on the left for visual balance. */
+.topbar-actions-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--topbar-card-bg);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  /* No border-radius — mirror of the player card spec. */
+}
+.topbar-actions-card .btn-icon {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  width: 30px; height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.topbar-actions-card .btn-icon:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border-color: var(--border2, var(--border));
+}
+.topbar-actions-card .btn-icon svg { width: 15px; height: 15px; }
+body[data-theme="light"] .topbar-actions-card .btn-icon { background: rgba(0, 0, 0, 0.04); }
+body[data-theme="light"] .topbar-actions-card .btn-icon:hover { background: rgba(0, 0, 0, 0.07); }
+/* Logs-toggle active state stays accent so it's visually obvious. */
+body.show-activity-logs .topbar-actions-card .topbar-logs-toggle { color: var(--accent); border-color: var(--accent); }
+/* Bell notification badge — keep positioning absolute on the button. */
+.topbar-actions-card .topbar-notif-history { position: relative; }
+/* Title/info block stretches to fill available space so the time and
+   buttons hug the right edge of the player widget. */
+.topbar-player .global-player-info { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.topbar-player .global-player-title {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Bottom row inside global-player-info: source label on the left, timer on
+   the right. Matches the small/dim/uppercase look of the source span. */
+.global-player-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+.player-time {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.player-time-sep { margin: 0 3px; opacity: 0.5; }
+/* Light theme variant for the topbar card is driven by --topbar-card-bg
+   (see :root + body[data-theme=light] override above). */
+/* Vertical separator between the player's title/info block and the action
+   buttons. 15px breathing room on the left, normal flex-gap on the right. */
+.player-section-divider {
+  display: inline-block;
+  width: 1px;
+  height: 22px;
+  background: var(--border2);
+  margin: 0 0 0 15px;
+  opacity: 0.6;
+}
+
+/* App footer — same bg as sidebar/toggle; no border so the bottom strip looks
+   like one continuous bar (toggle + footer) under the content area. */
+.app-footer {
+  flex-shrink: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--sidebar-bg);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+.footer-version { color: var(--text-muted); }
+.app-footer .link-button {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 16px; /* breathing room between Terms / Powered by */
+}
+.app-footer .link-button:hover { color: var(--accent); }
+/* Social icon links in the footer (GitHub now; more to come). */
+.footer-social { display: inline-flex; align-items: center; padding: 0; }
+.footer-social svg { width: 16px; height: 16px; }
+/* Standalone nav row above the first group (currently just Home). */
+.nav-links-top { list-style: none; padding: 0; margin: 0 0 8px; }
+
+/* Queue import — review list with per-row URL check status. */
+.modal-box-wide { width: min(720px, 95vw); }
+/* Import-list modal opts into a wider, user-resizable box. Width is +20% over
+   the default wide modal (864 vs 720) and the user can drag the bottom-right
+   corner to grow it further (resize:both + overflow:hidden activates the
+   built-in browser resize handle). */
+#queue-import-modal .modal-box {
+  width: min(864px, 95vw);
+  min-width: 480px;
+  max-width: 95vw;
+  max-height: 90vh;
+  resize: both;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* IRC channel-list modal — +30% over the default wide box (720→936),
+   user-resizable, internal scroll on the table so long server lists
+   stay manageable without the modal itself growing past viewport. */
+#irc-channels-modal .modal-box {
+  width: min(936px, 95vw);
+  min-width: 520px;
+  max-width: 95vw;
+  max-height: 90vh;
+  resize: both;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#irc-channels-modal .results-table-wrap {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 200px;
+}
+#irc-channels-modal .results-table-wrap::-webkit-scrollbar       { width: 3px; }
+#irc-channels-modal .results-table-wrap::-webkit-scrollbar-track { background: transparent; }
+#irc-channels-modal .results-table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+
+/* WHOIS modal — label/value grid. Most rows are 2-col; the channels list
+   spans the full width because it tends to be long. */
+#irc-whois-modal .modal-box { width: min(560px, 95vw); }
+.irc-whois-status {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: var(--accent2);
+  color: var(--bg);
+}
+.irc-whois-status.away    { background: var(--warning); }
+.irc-whois-status.loading { background: var(--border2); color: var(--text-muted); }
+.irc-whois-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 14px;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.irc-whois-row {
+  display: contents;
+}
+.irc-whois-row-wide { grid-column: 1 / -1; }
+.irc-whois-row-wide .irc-whois-label { display: block; margin-bottom: 4px; }
+.irc-whois-label {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.irc-whois-val {
+  color: var(--text);
+  font-family: var(--mono);
+  word-break: break-word;
+}
+.irc-whois-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.irc-whois-channels .irc-whois-channel-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.irc-whois-channels .irc-whois-channel-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+#irc-channels-modal .irc-ch-join-col  { width: 36px; padding: 0; }
+#irc-channels-modal .irc-ch-name-col  { width: 180px; max-width: 220px; }
+#irc-channels-modal .irc-ch-users-col { width: 70px; }
+#irc-channels-modal td.irc-ch-join { padding: 4px; text-align: center; }
+#irc-channels-modal td.irc-ch-name { font-family: var(--mono); }
+#irc-channels-modal .btn-icon-join {
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+#irc-channels-modal .btn-icon-join:hover { color: var(--accent); border-color: var(--accent); }
+#irc-channels-modal .btn-icon-join svg { width: 14px; height: 14px; }
+#queue-import-modal .import-review {
+  /* Let the review list grow with the modal instead of being pinned at 50vh. */
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 180px;
+}
+.import-review {
+  margin: 12px 0;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+}
+.import-review-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--text-muted);
+  background: var(--bg2);
+}
+/* Two-zone legend: progress counter on the left (elaborati X / totali Y),
+   colour-coded pills on the right. justify-content:space-between on the
+   parent .import-review-header already separates the two; this rule just
+   makes the inner status container span the row so the split survives a
+   collapsed pill set. */
+.import-review-status {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.import-review-progress {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.import-review-pills {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+}
+/* Status dots — also used in the Queue table's "Status" column.
+   pending = grey static (waiting in queue)
+   checking, running = yellow pulsing (actively being processed)
+   ready, done = green (success)
+   fail, failed = red (error)
+   total = neutral grey (counter only) */
+.dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-pending  { background: var(--text-muted); }
+.dot-checking,
+.dot-running  { background: var(--warning); animation: pulse-yellow 1.4s ease-in-out infinite; }
+.dot-ready,
+.dot-done     { background: var(--accent2); }
+.dot-fail,
+.dot-failed   { background: var(--danger); }
+.dot-total,
+.dot-duplicate { background: var(--text-muted); }
+.dot-stopped   { background: #f59e0b; }   /* amber — distinct from yellow pulse */
+@keyframes pulse-yellow { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Review list — scrollbar styled like the sidebar (3px, border2 thumb). */
+.import-review-list { overflow-y: auto; flex: 1; }
+.import-review-list::-webkit-scrollbar { width: 3px; }
+.import-review-list::-webkit-scrollbar-track { background: transparent; }
+.import-review-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+
+.import-row {
+  display: grid;
+  /* Columns: switch · dot · info. Switch column has a fixed slot even when
+     a row can't be queued (placeholder span) so rows align vertically.
+     20px gap separates the toggle from the status dot, and 20px left
+     padding pushes the toggle away from the modal edge — per design spec. */
+  grid-template-columns: 30px 14px 1fr;
+  gap: 20px;
+  align-items: start;          /* dot anchors to first line of title */
+  padding: 8px 12px 8px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.import-row:last-child { border-bottom: none; }
+.import-row .dot { margin-top: 4px; }
+.import-row-check-placeholder { display: inline-block; width: 28px; height: 16px; }
+
+/* Toggle switch — replaces the native checkbox so the import list reads as a
+   row of explicit on/off decisions. On-state uses the FLUX brand lime
+   (--accent) so a green-positive read matches the rest of the UI. */
+.import-row-switch {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  margin-top: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.import-row-switch.is-disabled { cursor: default; }
+.import-row-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.import-row-switch .switch-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-elev, #2a2a2a);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.import-row-switch .switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  left: 2px;
+  top: 2px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.import-row-switch input:checked + .switch-slider {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.import-row-switch input:checked + .switch-slider::before {
+  transform: translateX(12px);
+  background: var(--bg);
+}
+.import-row-switch input:disabled + .switch-slider { opacity: 0.45; }
+.import-row-switch input:focus-visible + .switch-slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Duplicate / stopped rows: dim the title so the eye lands on the still-
+   queueable rows first. Sub-text uses the muted colour by default already. */
+.import-row.duplicate .import-row-title,
+.import-row.stopped   .import-row-title {
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+.import-row-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Fail rows let the title wrap to 2 lines — long search queries that failed
+   to resolve need the room so the user can see what went wrong. */
+.import-row.fail .import-row-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  opacity: 0.75;
+  color: var(--danger);
+}
+.import-row-sub   { color: var(--text-muted); font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-row.ready .import-row-sub { color: var(--accent2); font-family: var(--mono); }
+.import-row-info  { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+
+/* Home tab — hero (top + bottom) bracketing four pillar cards. Heroes are
+   plain text blocks (no card background), cards keep the boxed look. */
+.home-hero {
+  text-align: center;
+  padding: 24px 16px;
+  margin-bottom: 16px;
+}
+.home-hero-logo {
+  display: block;
+  margin: 0 auto 16px;
+  width: 300px;
+  max-width: 80%;
+  height: auto;
+}
+.home-hero-title {
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0 0 10px;
+  letter-spacing: 0.5px;
+  color: var(--text);
+}
+.home-hero-body {
+  max-width: 760px;
+  margin: 0 auto;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.home-hero-legal { margin-top: 24px; margin-bottom: 0; }
+.home-hero-legal .home-hero-title {
+  text-transform: uppercase;
+  color: var(--accent2);
+}
+/* Donations card on home — sits below the legal block. Lime accent to
+   make it inviting without screaming. Mirrors the legal-hero structure. */
+.home-hero-donate {
+  margin-top: 24px;
+  margin-bottom: 32px;
+  border-left: 3px solid var(--accent);
+  padding-left: 16px;
+}
+.home-hero-donate .home-hero-title {
+  font-size: 18px;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.home-hero-donate .home-hero-title svg { width: 22px; height: 22px; }
+/* Donations modal — list of platform options, each a clickable card row.
+   .donate-option must look interactive (cursor pointer, hover lime) since
+   they ARE the call-to-action of the modal. */
+/* Donations popup — roughly double width so the links sit in two columns. */
+#donate-modal .modal-box { width: min(820px, 94vw); max-width: 94vw; }
+.donate-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
+@media (max-width: 560px) { .donate-options { grid-template-columns: 1fr; } }
+.donate-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border2);
+  background: var(--bg2);
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.12s, background 0.12s;
+}
+.donate-option:hover { border-color: var(--accent); background: var(--bg3); }
+.donate-option-icon  { color: var(--accent); display: inline-flex; align-items: center; padding-top: 2px; }
+.donate-option-icon svg { width: 20px; height: 20px; }
+.donate-option-text  { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.donate-option-title { font-weight: 600; font-size: 15px; }
+.donate-option-sub   { font-size: 13px; color: var(--text-dim); line-height: 1.45; }
+/* Body paragraph of the donate modal — readable standard size instead of
+   the 11px .field-help we used before (the modal is a deliberate Read-Me
+   moment, not a hint under an input). */
+.donate-intro {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.55;
+  margin: 4px 0 14px;
+}
+/* Home dashboard CTA: make the donate button stand out next to the legal
+   notice. Inherits .btn .btn-primary but with a touch more padding so it
+   reads as a primary call-to-action, not a secondary text link. */
+.home-hero-donate-btn { margin-top: 8px; padding: 10px 22px; gap: 8px; }
+.home-hero-donate-btn .lucide-slot svg { width: 16px; height: 16px; }
+/* Active state on the topbar activity-log toggle when logs are visible —
+   mirrors the body.show-activity-logs class. Lime accent draws the eye to
+   the "logs are on" state so the user isn't confused later. */
+body.show-activity-logs .topbar-logs-toggle { color: var(--accent); }
+
+/* ─── Global drag-and-drop overlay ───────────────────────────────────── */
+.dnd-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.15s;
+  backdrop-filter: blur(2px);
+}
+body.dnd-active .dnd-overlay { opacity: 1; }
+.dnd-overlay-box {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 40px 60px;
+  background: var(--bg2);
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+}
+.dnd-overlay-box svg { width: 48px; height: 48px; color: var(--accent); }
+.dnd-overlay-text { font-size: 18px; font-weight: 600; }
+.dnd-overlay-sub  { font-size: 12px; color: var(--text-dim); }
+
+/* ─── Shortcuts modal ─────────────────────────────────────────────────── */
+.shortcuts-list { max-height: 60vh; overflow-y: auto; margin: 12px 0; }
+.shortcut-section { margin-bottom: 14px; }
+.shortcut-section-title { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; border-radius: 3px; }
+.shortcut-row:hover { background: var(--bg2); }
+.shortcut-row.hidden { display: none; }
+.shortcut-keys { display: inline-flex; gap: 4px; align-items: center; }
+.shortcut-key {
+  display: inline-block; padding: 2px 8px;
+  background: var(--bg2); border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 4px; font-family: monospace; font-size: 11px; color: var(--text);
+}
+.shortcut-label { font-size: 13px; color: var(--text); }
+
+/* ─── Notifications history ─────────────────────────────────────────── */
+.notif-history-list { max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.notif-history-entry {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+}
+.notif-history-entry.notif-err  { border-left-color: var(--danger, #d33); }
+.notif-history-entry.notif-warn { border-left-color: var(--warning, #d8a100); }
+.notif-history-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.notif-history-body  { font-size: 11px; color: var(--text-dim); word-break: break-all; }
+.notif-history-time  { font-size: 10px; color: var(--text-muted); }
+.notif-history-badge {
+  position: absolute; top: 2px; right: 2px;
+  min-width: 14px; padding: 0 4px; height: 14px;
+  border-radius: 7px; background: var(--accent); color: #000;
+  font-size: 9px; font-weight: 700; line-height: 14px; text-align: center;
+}
+.topbar-notif-history { position: relative; }
+.donate-thanks       { text-align: center; color: var(--accent2); margin-top: 4px; }
+/* Footer Support FLUX link — lime tint to set it apart from Terms/Powered. */
+.footer-donate { color: var(--accent) !important; display: inline-flex; align-items: center; gap: 4px; }
+.footer-donate svg { width: 14px; height: 14px; }
+.footer-donate:hover { color: var(--accent2) !important; }
+.home-hero-tos-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--accent2);
+  text-decoration: underline;
+}
+.home-hero-tos-link:hover { color: var(--accent); }
+
+/* Pillar cards — 2 columns on wide screens, single column on narrow. */
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 920px;
+  margin: 0 auto;
+}
+@media (max-width: 720px) { .home-grid { grid-template-columns: 1fr; } }
+.home-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 18px;
+  box-shadow: var(--shadow-card);
+}
+.home-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+/* Drop-cap effect on the title text — first letter of the pillar name
+   reads slightly larger and heavier. */
+.home-card-title > span:last-child::first-letter {
+  font-size: 1.4em;
+  font-weight: 900;
+  color: var(--accent);
+}
+.home-card p {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  margin: 0;
+}
+/* Sidebar logo as a Home link — flips to accent yellow when home tab active. */
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.sidebar-logo:hover { background: var(--bg3); }
+.sidebar-logo.is-home-active {
+  background: var(--accent);
+  color: var(--primary-fg);
+}
+.sidebar-logo.is-home-active .logo-mark { color: var(--primary-fg); }
+.footer-links {
+  /* Group Terms + divider + Powered so the divider sits with equal spacing
+     on each side. The link-button class has internal padding; we zero it
+     out for these specific buttons so the visible text edges + divider have
+     truly symmetric 10px gaps (gap on the flex container is between BOXES,
+     not between visible glyphs, so unequal padding made it look uneven). */
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.footer-links .link-button { padding: 0; }
+#footer-tos-link { padding-right: 15px; }
+.footer-divider {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  background: var(--border2);
+  vertical-align: middle;
+  opacity: 0.6;
+}
+
+/* ─── BOOT SPLASH ─────────────────────────────────────────────────────────── */
+/* Full-window overlay shown from first paint until renderer.js finishes init.
+   Solid bg + brand mark + circular spinner. Removed via .hidden + JS. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: var(--sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  transition: opacity 0.28s ease;
+}
+.splash.hidden { opacity: 0; pointer-events: none; }
+.splash-logo {
+  font-family: var(--sans);
+  font-size: 64px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  color: var(--accent);
+}
+.splash-spinner {
+  width: 38px; height: 38px;
+  border: 3px solid var(--border2);
+  border-top-color: var(--accent);
+  /* Override the global border-radius:0 — spinners must be circular. */
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.splash-msg {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ─── TOAST NOTIFICATIONS ─────────────────────────────────────────────────── */
+/* Top-right stack of dismissible toasts. Used by showToast() for non-modal
+   feedback (e.g. song recognition result). */
+.toast-stack {
+  position: fixed;
+  top: 70px;          /* below the topbar */
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9000;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+  padding: 10px 36px 10px 14px;
+  min-width: 260px;
+  max-width: 380px;
+  box-shadow: var(--shadow-elev);
+  font-size: 13px;
+  line-height: 1.5;
+  position: relative;
+  opacity: 0;
+  transform: translateX(20px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.toast.show       { opacity: 1; transform: translateX(0); }
+.toast.toast-ok   { border-left-color: var(--accent); }
+.toast.toast-warn { border-left-color: var(--warning); }
+.toast.toast-err  { border-left-color: var(--danger); }
+.toast-title { font-weight: 700; font-size: 13px; margin-bottom: 2px; overflow-wrap: anywhere; word-break: break-word; }
+.toast-body  { color: var(--text-dim); font-size: 12px; overflow-wrap: anywhere; word-break: break-word; }
+.toast-close {
+  position: absolute;
+  top: 6px; right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.toast-close:hover { color: var(--text); }
+.toast-action {
+  margin-top: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.toast-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.toast-action-icon {
+  background: var(--bg3, var(--bg2));
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s, background 0.1s;
+}
+.toast-action-icon:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg2);
+}
+.toast-action-icon .lucide-slot svg { width: 14px; height: 14px; }
+
+/* Footer volume controller — icon (mute toggle) + slider + percent readout */
+.footer-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+.footer-volume-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.footer-volume-btn:hover { color: var(--text); }
+.footer-volume-btn.is-muted { color: var(--danger); }
+.footer-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 110px;
+  height: 4px;
+  background: var(--border2);
+  outline: none;
+  cursor: pointer;
+}
+.footer-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  cursor: pointer;
+}
+.footer-volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+.footer-volume.is-muted .footer-volume-slider { opacity: 0.4; }
+.footer-volume-value {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Settings version row (replaces footer version) */
+.settings-version-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.settings-version-text {
+  font-family: 'Roboto Mono', Consolas, monospace;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.settings-update-msg {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.settings-update-msg.ok { color: var(--accent); }
+.settings-update-msg.warn { color: var(--warning); }
+.settings-update-msg.error { color: var(--danger); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+.sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--sidebar-bg);
+  /* NO border-right — color contrast (sidebar-bg vs main-area-bg) separates them.
+     In the top "logo+topbar" strip and bottom "toggle+footer" strip both halves use
+     sidebar-bg → they look like one continuous bar with no vertical seam. */
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  user-select: none;
+  transition: width 0.22s ease, min-width 0.22s ease;
+}
+.sidebar.collapsed {
+  width: 64px;
+  min-width: 64px;
+}
+
+/* Scrollable middle area for the nav groups */
+.nav-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 8px;
+}
+.nav-scroll::-webkit-scrollbar { width: 3px; }
+.nav-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+
+/* Section labels (FETCH / LOAD / USE / XTRACT) above each group.
+   Clickable: toggles `.collapsed` on the parent .nav-group to fold the
+   contained list. Persisted in config.nav_groups_collapsed. */
+.nav-group { margin-bottom: 4px; }
+/* Block (not flex) so ::first-letter still colours the leading F/L/U/X — the
+   CSS spec restricts ::first-letter to block/inline-block/list-item/table-cell.
+   The chevron is positioned absolutely instead. */
+.nav-group-label {
+  display: block;
+  position: relative;
+  font-size: 11px;
+  letter-spacing: 2.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding: 14px 32px 6px 20px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.nav-group-label:hover { color: var(--text-dim); }
+.nav-group-label::after {
+  content: '⌄';
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-40%);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  transition: transform 0.18s ease;
+  opacity: 0.6;
+}
+.nav-group.collapsed .nav-group-label::after { transform: translateY(-40%) rotate(-90deg); }
+.nav-group .nav-links {
+  overflow: hidden;
+  max-height: 600px;
+  transition: max-height 0.22s ease;
+}
+.nav-group.collapsed .nav-links { max-height: 0; }
+/* First letter highlighted via ::first-letter so it survives data-i18n textContent
+   replacement. White in dark theme, near-black in light — matches --text. */
+.nav-group-label::first-letter {
+  color: var(--accent);
+  font-weight: 800;
+}
+/* Empty group (XTRACT placeholder) — coming soon hint */
+.nav-group-empty .nav-group-soon {
+  padding: 4px 20px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  letter-spacing: 0.5px;
+}
+/* Collapsed sidebar: show just the group's initial (F·L·U·X) above a separator
+   line, so the groups stay recognisable when only icons are shown. */
+.sidebar.collapsed .nav-group-label {
+  display: block;
+  text-align: center;
+  padding: 5px 0 7px;
+  margin: 2px 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0;            /* hide the rest of the word… */
+  letter-spacing: 0;
+  color: var(--accent);
+  overflow: hidden;
+}
+.sidebar.collapsed .nav-group-label::first-letter { font-size: 11px; font-weight: 800; }  /* …keep the initial */
+.sidebar.collapsed .nav-group-label::after { display: none; }  /* no accordion chevron when collapsed */
+
+.sidebar-logo {
+  height: 56px;            /* MUST match .topbar height */
+  padding: 0 20px;
+  /* NO border-bottom — seamless with the nav-scroll area below */
+  display: flex;
+  flex-direction: row;     /* "FLUX HUB" on one line */
+  align-content: center;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* macOS traffic lights (close/min/max) render at window top-left over the
+   page, overlapping the FLUX logo and topbar. Pad both down by ~28px so
+   the content clears the OS chrome. .is-mac is added on <body> at boot
+   from window.api.system.platform === 'darwin'. */
+body.is-mac .sidebar-logo,
+body.is-mac .topbar {
+  padding-top: 28px;
+  height: 84px;
+}
+/* macOS: auto-update is disabled (unsigned build) — hide the whole update UI
+   instead of showing a "not available" message. The version text stays visible. */
+body.is-mac #settings-autoupdate-row,
+body.is-mac #settings-check-updates,
+body.is-mac #settings-update-msg,
+body.is-mac #updater-banner { display: none !important; }
+.logo-mark {
+  display: block;
+  font-family: 'Audiowide', 'Syne', sans-serif;   /* new brand font */
+  font-weight: 400;
+  font-size: 25px;
+  color: var(--accent);
+  letter-spacing: 0;
+  line-height: 1;
+}
+/* "HUB" — same size as FLUX, on the same line. */
+.logo-sub {
+  display: block;
+  font-family: 'Audiowide', 'Syne', sans-serif;
+  font-weight: 400;
+  font-size: 25px;
+  letter-spacing: 0;
+  text-transform: uppercase !important;
+  color: var(--accent);
+  line-height: 1;
+  margin-top: 0;
+}
+/* On the active (lime) home button the sub flips to dark so it stays readable. */
+.sidebar-logo.is-home-active .logo-sub { color: var(--primary-fg); }
+/* Brand mark (transparent, no background) shown only when sidebar is collapsed. */
+.logo-icon-img {
+  display: none;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+/* On the active home button (lime bg) the lime mark would vanish → render it black. */
+.sidebar-logo.is-home-active .logo-icon-img { filter: brightness(0); }
+.sidebar.collapsed .logo-mark { display: none; }
+.sidebar.collapsed .logo-icon-img { display: block; }
+
+.nav-links { list-style: none; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 20px;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 14px;
+  letter-spacing: 0.3px;
+  transition: color 0.12s, background 0.12s;
+  border-radius: 0;
+}
+/* Hover on inactive items only — never override the active row's accent
+   background, otherwise the white text on the semi-transparent black hover
+   becomes unreadable in light theme. */
+.nav-item:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.04); }
+body[data-theme="light"] .nav-item:hover:not(.active) { background: rgba(0,0,0,0.04); }
+.nav-item.active {
+  background: var(--accent);
+  color: var(--primary-fg);
+  font-weight: 600;
+}
+/* Slight brightness bump on active hover so the user sees the row reacts. */
+.nav-item.active:hover { filter: brightness(1.06); }
+.nav-item.active .nav-icon svg { stroke: var(--primary-fg); }
+.nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: currentColor;
+}
+.nav-icon svg { display: block; }
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* When collapsed: hide labels, center icons, keep tooltips via title attr */
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .logo-sub { display: none; }
+.sidebar.collapsed .nav-item {
+  padding: 11px 0;
+  justify-content: center;
+  gap: 0;
+}
+.sidebar.collapsed .logo-mark {
+  font-size: 14px;
+  text-align: center;
+  width: 100%;
+}
+.sidebar.collapsed .sidebar-logo {
+  padding: 0 8px;
+  text-align: center;
+}
+
+/* Sidebar collapse toggle — bottom row, same height as footer, no borders */
+.sidebar-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  height: 32px;
+  padding: 0;
+  font-size: 22px;        /* arrow visibly bigger */
+  line-height: 1;
+  width: 100%;
+  text-align: center;
+  transition: color 0.12s, background 0.12s;
+  flex-shrink: 0;
+}
+.sidebar-toggle:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.sidebar-toggle-icon { display: inline-block; transition: transform 0.22s; font-size: 22px; }
+.sidebar.collapsed .sidebar-toggle-icon { transform: rotate(180deg); }
+
+/* Hide xtract "coming soon" hint when collapsed */
+.sidebar.collapsed .nav-group-soon { display: none; }
+.sidebar.collapsed .nav-group-empty { display: none; }
+
+.sidebar-bottom-nav {
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+.sidebar-bottom-nav .nav-links { flex: none; }
+.responsibility-notice {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-button:hover { filter: brightness(1.15); }
+.version-tag    { font-size: 12px; color: var(--text-muted); }
+
+/* Legal banner — soft inline reminder, one-time per session */
+.legal-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 183, 0, 0.08);
+  border: 1px solid var(--warning);
+  border-left: 3px solid var(--warning);
+  border-radius: 0;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.legal-banner-text { flex: 1; }
+/* Permanent variant — stronger visual, no dismiss button. Used on Spotify
+   where the user-responsibility framing must always be visible. */
+.legal-banner-permanent {
+  align-items: flex-start;
+  background: rgba(255, 183, 0, 0.12);
+  border-left-width: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.legal-banner-icon {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--warning);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--warning);
+  border-radius: 50%;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.btn-link {
+  background: transparent;
+  border: 1px solid var(--text-muted);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.btn-link:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Custom source warning modal — name display */
+.custom-source-name-display {
+  font-family: monospace;
+  font-size: 13px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 8px 12px;
+  margin: 12px 0;
+  color: var(--accent);
+  word-break: break-all;
+}
+.modal-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+/* ─── CONTENT ─────────────────────────────────────────────────────────────── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 40px 40px;
+  position: relative;
+  background: var(--bg);
+}
+.content::-webkit-scrollbar       { width: 4px; }
+.content::-webkit-scrollbar-track { background: transparent; }
+.content::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+
+.tab { display: none; animation: fadeIn 0.2s ease; }
+.tab.active { display: block; }
+.tab.hidden { display: none; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.tab-header { margin-bottom: 28px; }
+.tab-header h1 {
+  font-weight: 700;
+  font-size: 28px;
+  color: var(--text);
+  letter-spacing: -0.4px;
+  line-height: 1.15;
+  margin-bottom: 4px;
+}
+.tab-sub { color: var(--text-dim); font-size: 14px; font-weight: 400; }
+
+/* ─── INPUTS ──────────────────────────────────────────────────────────────── */
+/* Input zone: a primary action toolbar (search/URL/filters) that should read
+   as a distinct "you act here" surface. Used on Torrent/Media/Radio/RSS top
+   toolbars. Subtle elevation + 3px accent stripe on the left for hierarchy. */
+/* Unified top-toolbar — canonical style for every "primary action" header strip
+   across all tabs (RSS, Radio, Media, Live, Torrent, Spotify, Tag, Queue, History).
+   Reference design: RSS top toolbar. Subtle elevation + 3px accent-lime stripe
+   on the left. Class is aliased as `.top-toolbar` for future cleaner naming. */
+/* ─── XTRACT capture modal ────────────────────────────────────────────────
+   Source picker grid (screens + windows) shown for screenshot / screen-rec;
+   recorder bar with REC button + timer + mic toggle shown for audio/video
+   recording. Both stages live inside the same .modal-box and toggle via
+   .hidden on their wrapper. */
+.capture-stage { display: flex; flex-direction: column; gap: 12px; }
+/* ─── Annotate (Fabric.js) ───────────────────────────────────────────── */
+.annotate-toolbar {
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.annotate-tool-btn { min-width: 32px; padding: 6px 10px; }
+.annotate-tool-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+.annotate-tool-btn.active .lucide-slot svg { color: #000; }
+.annotate-color-field, .annotate-size-field {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.annotate-color-field input[type="color"] {
+  width: 32px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg2); cursor: pointer;
+}
+.annotate-size-field input { width: 56px; }
+.annotate-stage {
+  background: transparent;
+  border-left: 3px solid var(--accent);
+  margin: 10px 0;
+  max-height: min(70vh, calc(100vh - 280px));
+  overflow: auto;
+  display: grid;
+  place-items: start center;
+  /* Fabric injects its own <canvas> + a wrapper div with class .upper-canvas;
+     centering them inline with min-content sizing avoids extra layout shifts
+     when the user resizes the underlying image. */
+}
+#annotate-canvas { display: block; }
+.annotate-actions-row { align-items: center; gap: 8px; margin-top: 6px; }
+.annotate-actions-row .muted { font-size: 11px; }
+body.annotate-pipette-active * { cursor: crosshair !important; }
+
+/* Split tracks card — the candidate list shows each detected segment as
+   a row with #, start, end, title (editable) + delete. The user edits and
+   clicks Split & Save. */
+.split-detect-row { align-items: center; gap: 12px; flex-wrap: wrap; }
+.split-tracks-source { font-size: 11px; margin: 8px 0; min-height: 14px; }
+.split-tracks-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 360px; overflow-y: auto;
+  margin: 8px 0;
+}
+.split-track-row {
+  display: grid;
+  grid-template-columns: 32px 96px 96px 1fr 32px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.split-track-row .split-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: right;
+}
+.split-track-row input[type="text"],
+.split-track-row input[type="number"] {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.split-track-row input[type="text"] { font-family: inherit; }
+.split-track-row input:focus { border-color: var(--accent); outline: none; }
+.split-track-row .btn-icon-danger { padding: 2px 4px; }
+.split-actions-row { align-items: center; }
+
+.xtract-pdf-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-height: 200px;
+  margin: 12px 0;
+  padding: 8px;
+}
+.xtract-pdf-preview img {
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  display: block;
+}
+/* Resizable modal variant — user drags the bottom-right corner. */
+.modal-box-resizable {
+  resize: both;
+  overflow: auto;
+  min-width: 480px;
+  min-height: 480px;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+/* PDF picker — bigger default size + 1.5× the inner text scale so the
+   preview is readable without forcing full-screen. */
+.xtract-pdf-modal-box { width: 720px; height: 760px; }
+.xtract-pdf-pick-info {
+  font-size: 18px;
+  color: var(--text);
+  margin: 4px 0 16px;
+  font-weight: 500;
+  word-break: break-all;
+}
+.xtract-pdf-pick-row { gap: 12px; }
+.xtract-pdf-pick-row .img-field-label { font-size: 14px; }
+.xtract-pdf-pick-row input[type="number"] {
+  font-size: 20px;
+  padding: 8px 12px;
+  width: 100px;
+}
+.xtract-pdf-page-total { font-size: 16px; color: var(--text-dim); }
+.xtract-pdf-preview-lg { min-height: 360px; padding: 12px; flex: 1; }
+.xtract-pdf-preview-lg img { max-height: 100%; }
+.capture-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+}
+.capture-url-row input { flex: 1; min-width: 0; }
+.capture-url-row select { max-width: 90px; }
+.capture-source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.capture-source-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.1s, transform 0.05s;
+}
+.capture-source-card:hover { border-color: var(--accent); }
+.capture-source-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.capture-source-card img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  background: #000;
+  border-radius: 2px;
+}
+.capture-source-card .capture-source-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.capture-loading { font-size: 12px; padding: 12px; text-align: center; }
+.capture-preview {
+  width: 100%;
+  max-height: 320px;
+  background: #000;
+  border-radius: 4px;
+}
+.capture-recorder-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.capture-timer {
+  font-family: monospace;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 70px;
+}
+.capture-rec-btn.recording { background: #d33; border-color: #d33; color: #fff; }
+.capture-rec-btn.recording .lucide-slot svg { color: #fff; }
+/* :not([hidden]) lets the HTML `hidden` attribute win (UA `[hidden] { display:none }`
+   has the same specificity as an unguarded class rule and the later author rule
+   would override it — see the screenshot-mic-row visibility bug). */
+.capture-mic-row:not([hidden]) { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.capture-mic-label { color: var(--text-dim); }
+.img-overwrite-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+.img-overwrite-label { flex: 1; color: var(--text); font-size: 13px; }
+.capture-format-row { display: flex; align-items: center; gap: 8px; }
+.capture-format-row select { max-width: 200px; }
+
+.input-zone, .top-toolbar {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+/* Stacked variant for input-zones that contain a label + multi-line content
+   (used in the Media URL field with title preview + URL input). */
+.input-zone.input-zone-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+body[data-theme="light"] .input-zone { box-shadow: var(--shadow-card); }
+
+/* XTRACT tab */
+.xtract-file { font-size: 13px; color: var(--text-dim); margin-right: auto; }
+
+/* Audio / Video sub-view switcher. Sits above the card grid; toggles which
+   cards render via `[data-view]` matching on the grid + the cards. */
+.xtract-view-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.xtract-view-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 10px 22px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px; /* overlap the parent's border */
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.xtract-view-tab:hover  { color: var(--text); }
+.xtract-view-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+/* Hide cards that don't belong to the currently selected view. */
+.xtract-grid[data-view="audio"] .xtract-card:not([data-view~="audio"]) { display: none; }
+.xtract-grid[data-view="video"] .xtract-card:not([data-view~="video"]) { display: none; }
+.xtract-grid[data-view="image"] .xtract-card:not([data-view~="image"]) { display: none; }
+.xtract-ffmpeg-status { font-size: 12px; color: var(--text-muted); }
+.xtract-ffmpeg-status.missing { color: var(--danger); }
+.xtract-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 14px;
+}
+.xtract-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  padding: 14px;
+  box-shadow: var(--shadow-card);
+  transition: opacity 0.18s ease;
+}
+/* Cards start disabled (no file loaded yet, or operation not applicable to
+   the detected media type). bindXtract toggles `.is-enabled` after probing. */
+.xtract-card:not(.is-enabled) {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.xtract-card.is-running { border-color: var(--accent); }
+.xtract-card-title { font-size: 14px; font-weight: 700; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+.xtract-card-help  { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5; }
+.xtract-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.xtract-row .field-label { font-size: 12px; color: var(--text-muted); }
+.xtract-time { width: 110px; }
+/* Narrow time inputs used in the unified trim+convert row.
+   Element-tag specificity beats `.search-input { width: 100% }` defined later. */
+input.xtract-time-narrow {
+  width: 85px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  flex: 0 0 85px;
+}
+input.xtract-fade-dur {
+  width: 60px;
+  padding: 7px 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  flex: 0 0 60px;
+}
+input.xtract-fade-dur.is-off { opacity: 0.4; }
+
+/* Unified Trim + Convert card spans the full grid width. */
+.xtract-card-wide { grid-column: 1 / -1; }
+
+/* Trim card visual editor (Audio view only — JS hides on Video). */
+.trim-editor {
+  margin: 4px 0 12px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+}
+.trim-editor.hidden { display: none; }
+.trim-waveform {
+  width: 100%;
+  min-height: 120px;
+  background: transparent;
+  position: relative;
+}
+.trim-waveform::after {
+  /* Until WaveSurfer decodes the audio, show a "Loading…" placeholder. */
+  content: 'Loading waveform…';
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); font-size: 12px; pointer-events: none;
+}
+.trim-waveform.is-ready::after { display: none; }
+/* Fade-in / fade-out curve overlay — purely visual, sits on top of the
+   WaveSurfer canvas. The two <path> elements form right-angle triangles
+   showing the audio amplitude ramp. pointer-events: none so the user can
+   still drag the trim region underneath. */
+.trim-fade-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 3;     /* above WaveSurfer canvas (z=1) and region overlay (z=2) */
+}
+.trim-fade-path {
+  fill: rgba(200, 245, 66, 0.18);
+  stroke: rgba(200, 245, 66, 0.9);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+  transition: opacity 0.15s;
+}
+.trim-fade-path.disabled { opacity: 0; }
+/* When waveform fails / times out: dim the empty area and announce that the
+   user should fall back to the numeric time inputs below. The trim region
+   logic still uses those inputs as the source of truth, so editing remains
+   fully functional even without the waveform. */
+.trim-waveform.has-error {
+  min-height: 60px;
+  background: linear-gradient(90deg, transparent 0%, var(--border) 50%, transparent 100%);
+  background-size: 200% 100%;
+  background-position: 0 0;
+  position: relative;
+}
+.trim-waveform.has-error::before {
+  content: 'Waveform unavailable for this file — use the time inputs below to trim';
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); font-size: 12px; pointer-events: none;
+  text-align: center; padding: 0 12px;
+}
+
+/* Video preview inside the trim editor — shown above the waveform when the
+   user loads a video file. WaveSurfer attaches via `media:` so the same
+   region drag controls both video scrubbing and audio waveform playback. */
+.trim-video {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  background: #000;
+  margin-bottom: 8px;
+}
+.trim-video.hidden { display: none; }
+/* Animated GIF preview — same slot as the video element, with object-fit
+   contain so tall GIFs aren't cropped. Loops automatically via <img>. */
+.trim-gif { object-fit: contain; }
+.trim-gif-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 0 10px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 8px;
+}
+.trim-gif-info.hidden { display: none; }
+/* GIF tuning knobs — inlined into the trim row (after #xtract-trim-end) so
+   everything fits on a single visual line. `display: contents` makes the
+   wrapper transparent to layout: children become direct flex siblings of
+   the trim-row, gap is inherited. Hidden state collapses the wrapper. */
+.trim-gif-inline { display: contents; }
+.trim-gif-inline.hidden { display: none; }
+.trim-gif-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.trim-gif-field-label {
+  white-space: nowrap;
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+/* Secondary hint under a field label (e.g. "(-1 = source)") — smaller and
+   muted to keep the row visually compact without losing the info. */
+.trim-gif-field-hint {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.trim-gif-field input  { width: 60px; }
+.trim-gif-dither-select { min-width: 90px; max-width: 110px; }
+
+/* Single-row controls under the waveform. */
+.trim-row { gap: 8px; }
+/* Compact format select — overrides the global .profile-select min-width
+   so the conversion picker doesn't hog horizontal space in the trim row
+   (applies to both Audio and Video sub-views). */
+.trim-row #xtract-trim-format { min-width: 90px; }
+.trim-play-btn {
+  width: 40px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+/* Fade toggle: icon-only ghost button; when active, accent border + filled. */
+.fade-toggle-btn {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  color: var(--text-dim);
+}
+.fade-toggle-btn.active {
+  background: var(--accent);
+  color: var(--primary-fg);
+  border-color: var(--accent);
+}
+.fade-toggle-btn .lucide-slot svg { width: 18px; height: 18px; }
+/* Flexible spacer that pushes the format+convert group to the right. */
+.trim-row-spacer { flex: 1 1 16px; min-width: 16px; }
+/* Editor (waveform + video preview + fade controls) is available on BOTH
+   Audio and Video views — for video, WaveSurfer attaches via `media:` so the
+   audio track waveform syncs with the <video> scrub bar. */
+
+/* Concat card row: keep [Add] · [info ellipsis] · [Run] on one line even
+   when the card is narrow. Info span shrinks first via min-width:0 + ellipsis. */
+.concat-row { flex-wrap: nowrap; }
+.concat-row > .xtract-file {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.progress-bar-bg {
+  margin-top: 10px;
+  position: relative;
+  height: 20px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+}
+.progress-bar-bg .progress-bar {
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.18s ease;
+}
+.progress-bar-bg .progress-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  mix-blend-mode: difference;
+}
+
+.search-input, .short-input {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 11px 14px;
+  border-radius: 0;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.search-input { width: 100%; }
+.short-input  { width: 100px; }
+.search-input:hover, .short-input:hover { background: var(--bg2); border-color: var(--text-muted); }
+.search-input:focus, .short-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(200, 245, 66, 0.12);
+  background: var(--bg2);
+}
+body[data-theme="light"] .search-input:focus,
+body[data-theme="light"] .short-input:focus {
+  box-shadow: 0 0 0 3px rgba(90, 154, 0, 0.15);
+}
+
+/* ─── BUTTONS ─────────────────────────────────────────────────────────────── */
+/* Lucide icon slot — used inside buttons / spans / inputs to host an inline SVG
+   alongside a translated text label. Sized to align with 14px text. */
+.lucide-slot { display: inline-flex; align-items: center; line-height: 0; }
+.lucide-slot svg { width: 16px; height: 16px; }
+.btn .lucide-slot { margin-right: 6px; }
+.btn-icon .lucide-slot { margin-right: 0; }
+.btn-icon svg, .btn-icon-small svg { width: 18px; height: 18px; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 10px 22px;
+  border-radius: 0;        /* Material 3 fully-rounded pill */
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: filter 0.15s, box-shadow 0.18s, background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--primary-fg);
+  border-color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.btn-primary:hover    { filter: brightness(1.08); box-shadow: var(--shadow-elev); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border2);
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+
+/* Orange-bordered stop button — visually flags an interrupt action distinct
+   from cancel (which is plain ghost) and confirm (which is primary green). */
+.btn-stop {
+  background: transparent;
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+.btn-stop:hover { background: rgba(255, 183, 0, 0.12); }
+
+/* Unified disabled state across all button variants */
+.btn:disabled,
+.btn-primary:disabled,
+.btn-ghost:disabled,
+.btn-sm:disabled,
+.btn-danger-sm:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  color: var(--text-muted) !important;
+  border-color: var(--border2) !important;
+  background: var(--bg3) !important;
+  filter: none !important;
+}
+
+.btn-sm {
+  padding: 7px 16px;
+  background: var(--bg3);
+  color: var(--text-dim);
+  border-color: var(--border2);
+  font-size: 13px;
+  border-radius: 0;
+}
+.btn-sm:hover { color: var(--text); border-color: var(--text-dim); background: var(--bg2); }
+
+.btn-danger-sm {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  padding: 7px 16px;
+  font-size: 13px;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-danger-sm:hover { background: rgba(255,90,90,0.1); }
+
+.btn-save-row {
+  padding: 5px 12px;
+  font-size: 13px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  transition: background 0.12s;
+}
+.btn-save-row:hover { background: rgba(200,245,66,0.08); }
+.btn-save-row .lucide-slot { display: inline-flex; vertical-align: middle; margin: 0; }
+.btn-save-row svg { width: 16px; height: 16px; display: block; }
+
+.btn-row { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+
+/* ─── SEARCH ROW ──────────────────────────────────────────────────────────── */
+.search-row { display: flex; gap: 10px; margin-bottom: 16px; }
+.search-row .search-input { flex: 1; }
+
+/* ─── SITE STATUS ─────────────────────────────────────────────────────────── */
+.site-status-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  min-height: 28px;
+}
+.site-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 0;
+  border: 1px solid var(--border2);
+  color: var(--text-muted);
+  background: var(--bg3);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+.site-chip.searching { color: var(--warning); border-color: var(--warning); animation: pulse 1s infinite; }
+.site-chip.done      { color: var(--accent2); border-color: var(--accent2); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* ─── RESULTS / HISTORY TABLE ─────────────────────────────────────────────── */
+.results-wrap { margin-bottom: 20px; }
+.results-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.results-count { color: var(--accent); font-size: 14px; font-weight: 600; }
+
+/* NZB tab — target hint chip turns warn-yellow when forwarding isn't
+   configured so the user knows the button won't do anything yet. */
+.nzb-target-warn { color: var(--warning); }
+
+/* IRC tab — transfer list. Each XDCC SEND gets a 3-row strip:
+   filename · progress bar · meta text. Bar fill grows in place during
+   transfer-progress events; done/error swap to terminal colours. */
+.irc-transfers { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.irc-transfer-row {
+  display: grid;
+  grid-template-columns: 1fr auto;   /* name+bar+meta column + cancel button column */
+  grid-template-rows: auto auto auto;
+  grid-template-areas:
+    "name   cancel"
+    "bar    cancel"
+    "meta   cancel";
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-size: 12px;
+}
+.irc-transfer-row.done  { border-left-color: var(--accent2); }
+.irc-transfer-row.error { border-left-color: var(--danger); }
+.irc-transfer-row.cancelled { border-left-color: var(--warning, #d8a100); }
+.irc-transfer-name { color: var(--text); font-family: var(--mono); word-break: break-all; grid-area: name; }
+.irc-transfer-bar  { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; grid-area: bar; }
+.irc-transfer-cancel { grid-area: cancel; align-self: center; }
+.irc-transfer-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.irc-transfer-row.done  .irc-transfer-bar-fill { background: var(--accent2); width: 100% !important; }
+.irc-transfer-row.error .irc-transfer-bar-fill { background: var(--danger); }
+.irc-transfer-meta { color: var(--text-muted); font-family: var(--mono); font-size: 11px; grid-area: meta; }
+.irc-status-on { color: var(--accent2); }
+
+/* IRC controls card — single .input-zone with two stacked rows inside.
+   Connection row on top, channel row below. The .input-zone bg + border
+   styling provides the visual "card" frame; row classes just stack the
+   children horizontally. */
+.irc-controls-card {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+}
+.irc-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Advanced (security) row — TLS switch · SASL switch · account · password
+   on a single line. Compact widths on the SASL inputs so all four fit. */
+.irc-advanced-row .irc-sasl-input { flex: 1 1 160px; min-width: 0; max-width: 260px; }
+.irc-advanced-row .irc-sasl-input:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Status dot. Replaces the verbose "● nick@host" string with a single
+   coloured circle: green when connected, muted grey otherwise. */
+.dot-status {
+  width: 12px; height: 12px;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: 12px;          /* breathe away from the Connect/Disconnect button */
+}
+.dot-status.connected { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+.dot-status.connecting { background: var(--warning); animation: pulse-yellow 1.4s ease-in-out infinite; }
+
+/* Inline switch widget inside toolbars (TLS toggle in the IRC card).
+   Reuses the standard .toggle/.toggle-track widget but pairs it with a
+   leading text label so it reads "TLS [○]" inline with the rest of the
+   row instead of stacking like a Settings field. */
+.irc-inline-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.irc-inline-switch:hover { color: var(--text); }
+
+/* IRC main area — chat pane on the left, user list on the right (default
+   20%), 4px drag splitter between them. Block is height-capped via the
+   --irc-main-h variable (user-resizable through the vsplitter below).
+   Width of the right column lives in --irc-users-w. Collapses to a single
+   column under 760px. */
+.irc-main {
+  --irc-users-w: 20%;
+  --irc-main-h: clamp(420px, calc(100vh - 360px), 720px);
+  display: grid;
+  grid-template-columns: 1fr 4px var(--irc-users-w);
+  gap: 0;
+  margin-top: 8px;
+  height: var(--irc-main-h);
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  overflow: hidden;
+}
+.irc-main:has(#irc-users-panel.hidden) {
+  grid-template-columns: 1fr 0 0;
+}
+.irc-main:has(#irc-users-panel.hidden) .irc-splitter { display: none; }
+@media (max-width: 760px) {
+  .irc-main { grid-template-columns: 1fr; height: auto; min-height: 420px; }
+  .irc-splitter, .irc-vsplitter { display: none; }
+  .irc-users-panel { max-height: 240px; }
+}
+.irc-splitter {
+  background: var(--border);
+  cursor: col-resize;
+  user-select: none;
+}
+.irc-splitter:hover, .irc-splitter.is-dragging { background: var(--accent); }
+body.irc-splitter-active { cursor: col-resize; user-select: none; }
+
+/* Vertical splitter — horizontal bar below the IRC pane, drag to resize
+   the area height. Mirror of .irc-splitter but on the Y axis. */
+.irc-vsplitter {
+  height: 4px;
+  background: var(--border);
+  cursor: row-resize;
+  user-select: none;
+}
+.irc-vsplitter:hover, .irc-vsplitter.is-dragging { background: var(--accent); }
+body.irc-vsplitter-active { cursor: row-resize; user-select: none; }
+
+/* Channel tabs strip — sits above the chat pane. Tabs look like browser
+   tabs: bottom-flush with the chat area, active tab gets the lime accent
+   border. Unread badge appears on tabs that aren't currently visible. */
+.irc-tabs {
+  display: flex;
+  gap: 2px;
+  margin-top: 8px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  flex-wrap: wrap;
+  min-height: 32px;
+}
+.irc-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.irc-tab:hover { color: var(--text); background: var(--bg3); }
+.irc-tab.active {
+  color: var(--accent);
+  background: var(--bg2);
+  border-top: 2px solid var(--accent);
+  padding-top: 5px;        /* compensate the 1→2 px border so glyphs don't jump */
+}
+.irc-tab-label { white-space: nowrap; }
+.irc-tab-unread {
+  background: var(--warning);
+  color: var(--bg);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+.irc-tab-close {
+  margin-left: 4px;
+  padding: 0 4px;
+  color: var(--text-muted);
+  border-radius: 2px;
+}
+.irc-tab-close:hover { background: var(--danger); color: var(--bg); }
+
+/* Chat pane = vertical stack: scrollable log + input row pinned at bottom. */
+.irc-chat-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.irc-chat-log {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  min-height: 0;          /* allow flex shrink so scroll triggers properly */
+}
+/* Sidebar-style scrollbar — thin (3px), transparent track, --border2 thumb. */
+.irc-chat-log::-webkit-scrollbar       { width: 3px; }
+.irc-chat-log::-webkit-scrollbar-track { background: transparent; }
+.irc-chat-log::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+.irc-chat-log .log-line { padding: 1px 0; }
+.irc-chat-log .log-self    { color: var(--accent); }
+.irc-chat-log .log-other   { color: var(--text); }
+.irc-chat-log .log-system  { color: var(--text-muted); font-style: italic; }
+.irc-chat-log .log-error   { color: var(--danger); }
+.irc-chat-log .log-notice  { color: var(--warning); }
+.irc-chat-log .log-action  { color: var(--accent2); font-style: italic; }
+
+.irc-chat-input {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: transparent;
+}
+.irc-chat-input .search-input { flex: 1; }
+
+.irc-users-panel {
+  background: var(--bg2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.irc-users-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;          /* let it actually shrink so scroll engages */
+  min-width: 0;
+}
+/* Sidebar-style scrollbar inside the user list. */
+.irc-users-list::-webkit-scrollbar       { width: 3px; }
+.irc-users-list::-webkit-scrollbar-track { background: transparent; }
+.irc-users-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+/* Filter row pinned at the bottom of the user panel — same vertical
+   alignment as the chat input row so the two actions read as a single
+   footer strip across the IRC pane. */
+.irc-users-filter-row {
+  flex-shrink: 0;
+  padding: 8px;
+  background: transparent;
+  display: flex;
+  min-width: 0;
+}
+.irc-users-filter-row .search-input {
+  flex: 1 1 auto;
+  min-width: 0;          /* prevent the input from overflowing the column */
+  width: auto;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.irc-user-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.irc-user-item:hover { background: var(--bg3); color: var(--text); }
+.irc-user-prefix {
+  width: 12px;
+  color: var(--warning);
+  text-align: center;
+  font-weight: 700;
+}
+.irc-user-nick { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* History stats — inline strip inside the toolbar row. No separate card
+   styling (the toolbar itself provides the container); just spaced chips. */
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+/* The filter input is the row's stretchy element — it grows to swallow any
+   extra horizontal space so the toolbar always looks full at any width. */
+.history-toolbar .search-input { flex: 1 1 240px; min-width: 200px; }
+.history-toolbar-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+}
+.history-stats {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.history-stats:empty { display: none; }
+.history-stats:empty + .history-toolbar-divider,
+.history-toolbar-divider:has(+ .history-stats:empty) { display: none; }
+.history-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.history-stat-label {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+.history-stat-value {
+  color: var(--text);
+  font-weight: 600;
+}
+.history-stat-sources { gap: 8px; }
+.history-stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.history-stat-chip strong { color: var(--accent); font-weight: 700; }
+.results-hint  { color: var(--text-muted); font-size: 13px; }
+
+.results-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  overflow: hidden;
+  margin-bottom: 14px;
+  background: var(--bg2);
+  box-shadow: var(--shadow-card);
+}
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.results-table thead tr {
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border2);
+}
+.results-table th {
+  padding: 12px 14px;
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.results-table tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.results-table tbody tr:last-child { border-bottom: none; }
+.results-table tbody tr:hover { background: var(--bg3); }
+.results-table td {
+  padding: 11px 14px;
+  color: var(--text);
+  vertical-align: middle;
+}
+.results-table tbody tr { transition: background 0.1s; }
+body[data-theme="light"] .results-table tbody tr:hover { background: rgba(0,0,0,0.03); }
+.td-num  { color: var(--text-muted); width: 40px; }
+.td-name { max-width: 340px; }
+.td-name-inner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.seeds-high   { color: var(--accent2); }
+.seeds-medium { color: var(--warning); }
+.seeds-low    { color: var(--danger); }
+.td-site {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.td-dim     { color: var(--text-muted); }
+.td-actions { white-space: nowrap; }
+
+/* Torrent action buttons */
+.btn-torrent, .btn-copy, .btn-queue, .btn-magnet {
+  padding: 4px 8px;
+  font-size: 13px;
+  min-width: 30px;
+  text-align: center;
+  margin-left: 3px;
+}
+.btn-torrent { color: var(--accent)  !important; border-color: var(--accent)  !important; }
+.btn-copy    { color: var(--warning) !important; border-color: var(--warning) !important; }
+.btn-queue   { color: var(--accent2) !important; border-color: var(--accent2) !important; }
+.btn-magnet  { color: var(--accent2) !important; border-color: var(--accent2) !important; }
+.btn-torrent:hover { background: rgba(200,245,66,0.08); }
+.btn-copy:hover    { background: rgba(255,183,0,0.08); }
+.btn-queue:hover   { background: rgba(61,255,160,0.08); }
+
+/* ─── ACTIVITY LOG ────────────────────────────────────────────────────────── */
+/* Hidden by default — clutters the main UI. User can opt in from Settings
+   (config.show_activity_logs) which adds `.show-activity-logs` on <body>. */
+.activity-log { display: none; }
+body.show-activity-logs .activity-log { display: block; }
+.activity-log {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  box-shadow: var(--shadow-card);
+}
+.activity-log .log-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.activity-log::-webkit-scrollbar       { width: 3px; }
+.activity-log::-webkit-scrollbar-thumb { background: var(--border2); }
+
+.log-line       { color: var(--text-dim); }
+.log-line.ok    { color: var(--accent2); }
+.log-line.error { color: var(--danger); }
+.log-line.info  { color: var(--accent); }
+.log-line.warn  { color: var(--warning); }
+/* lucide status icon prepended to each typed log line — inherits the line colour */
+.log-line-icon  { display: inline-flex; vertical-align: -2px; margin-right: 5px; }
+.log-line-icon svg { width: 13px; height: 13px; }
+
+/* ─── MEDIA TAB ───────────────────────────────────────────────────────────── */
+.field-group { margin-bottom: 20px; }
+.field-label {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.format-row { margin-bottom: 24px; }
+.format-options { display: flex; gap: 10px; flex-wrap: wrap; }
+.radio-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: 1px solid var(--border2);
+  border-radius: 0;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: all 0.15s;
+  font-size: 14px;
+  background: var(--bg2);
+}
+.radio-card:hover { border-color: var(--text-dim); color: var(--text); }
+.radio-card input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0; height: 0;
+}
+.radio-card:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(200,245,66,0.04);
+}
+
+/* Format row inner section labels (Video / Audio) */
+.format-section-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 12px 0 6px;
+}
+.format-section-label:first-of-type { margin-top: 4px; }
+
+/* Inline toggle (label + checkbox horizontal) */
+.toggle-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.toggle-inline input { accent-color: var(--accent); }
+.field-help {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: 4px;
+  margin-left: 24px;
+}
+.field-help p { margin: 0 0 4px 0; }
+.settings-link {
+  font-size: 11px;
+  color: var(--accent);
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-decoration: underline;
+  margin: 0;
+}
+.settings-link:hover { color: var(--text); }
+.recognition-row { gap: 8px; align-items: stretch; }
+.recognition-row .recognition-key {
+  flex: 1 1 200px;
+  min-width: 180px;
+  max-width: 280px;
+  height: auto;
+}
+
+/* Inline live player (hls.js) */
+.live-player-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid var(--border2);
+  border-radius: 0;
+  overflow: hidden;
+  margin: 0 0 16px;
+}
+.live-player-wrap video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #000;
+}
+.live-player-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+
+/* Live badges (LIVE / PAST / VOD) */
+.live-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 2px 6px;
+  border-radius: 0;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.live-badge-live { background: var(--danger); color: #fff; animation: pulse 1.4s infinite; }
+.live-badge-past { background: var(--text-muted); color: var(--bg); }
+.live-badge-vod  { background: var(--accent2); color: var(--bg); }
+
+/* Progress bar (media download) */
+.progress-bar-wrap {
+  position: relative;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 0;
+  height: 24px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+  width: 0;
+}
+.progress-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  mix-blend-mode: difference;
+}
+
+/* ─── SETTINGS TAB ────────────────────────────────────────────────────────── */
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  margin-bottom: 24px;
+}
+@media (max-width: 800px) { .settings-grid { grid-template-columns: 1fr; } }
+
+/* Settings sub-menu layout — left nav + one visible panel at a time. */
+.settings-layout { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 24px; }
+.settings-subnav {
+  display: flex; flex-direction: column; gap: 2px;
+  width: 200px; flex-shrink: 0; position: sticky; top: 8px;
+}
+.settings-subnav-item {
+  text-align: left; background: transparent; border: none;
+  border-left: 3px solid transparent; color: var(--text-dim);
+  padding: 9px 14px; cursor: pointer; font-size: 14px; line-height: 1.3;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.settings-subnav-item:hover { background: var(--bg2); color: var(--text); }
+/* Expandable group (e.g. Integrations) + its nested child items. */
+.settings-subnav-group { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.subnav-caret { display: inline-flex; transition: transform 0.15s ease; }
+.settings-subnav-group.open .subnav-caret { transform: rotate(90deg); }
+.settings-subnav-children { display: flex; flex-direction: column; gap: 2px; }
+.settings-subnav-children.collapsed { display: none; }
+.settings-subnav-child { padding-left: 28px; font-size: 13px; }
+.settings-subnav-item.active {
+  background: rgba(200,245,66,0.16); color: var(--accent);
+  border-left-color: var(--accent); font-weight: 600;
+}
+/* Light theme: stronger lime tint + dark text so the active item clearly stands out. */
+body[data-theme="light"] .settings-subnav-item.active {
+  background: rgba(200,245,66,0.38); color: var(--text);
+}
+body[data-theme="light"] .footer-donate { color: var(--text) !important; }
+.settings-panels { flex: 1; min-width: 0; }
+.settings-panels > .settings-section { display: none; }
+.settings-panels > .settings-section.active { display: block; }
+@media (max-width: 800px) {
+  .settings-layout { flex-direction: column; }
+  .settings-subnav { flex-direction: row; flex-wrap: wrap; width: 100%; position: static; }
+}
+/* Save action relocated into the settings sub-nav (bottom of the menu). */
+.settings-subnav .settings-actions { margin-top: 12px !important; display: flex; flex-direction: column; gap: 6px; }
+.settings-subnav .settings-actions .btn-primary { width: 100%; }
+/* Profile bar: compact export-mode radios beside the icon buttons. */
+/* Export-mode segmented control (Shareable / Backup) — same height as the
+   profile-bar icon buttons. */
+.export-mode-seg { display: inline-flex; border: 1px solid var(--border2); }
+.export-mode-btn {
+  background: var(--bg3); border: none; color: var(--text-dim);
+  font-size: 12px; padding: 0 12px; height: 34px; box-sizing: border-box;
+  cursor: pointer; transition: background 0.12s ease, color 0.12s ease;
+}
+.export-mode-btn + .export-mode-btn { border-left: 1px solid var(--border2); }
+.export-mode-btn:hover { color: var(--text); }
+.export-mode-btn.active { background: var(--accent); color: var(--primary-fg); font-weight: 600; }
+
+.settings-section {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+.settings-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+/* Multi-column row inside a Settings section. Wraps 2 or 3 .field-group
+   children so related fields (type + URL, username + password + path, etc.)
+   sit side-by-side. Children opt out of their default bottom margin while
+   inside the grid — the row itself owns the spacing. Below 640px the grid
+   collapses to a single column so labels stay readable on narrow windows. */
+.settings-field-row {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  align-items: end;
+}
+.settings-field-row.cols-2 { grid-template-columns: 1fr 1fr; }
+.settings-field-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.settings-field-row.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+/* SOCKS row: host gets more room than the others — port/user/pass are short. */
+.settings-field-row.cols-socks { grid-template-columns: 2fr 1fr 1fr 1fr; }
+/* "select + URL" layout: type dropdowns are short, the URL/webhook input
+   eats whatever's left. Min width on the select so its visible options
+   don't get clipped on narrow viewports. */
+.settings-field-row.cols-select-url { grid-template-columns: minmax(180px, 220px) 1fr; }
+.settings-field-row .field-group { margin-bottom: 0; }
+/* Toggle field-group inside a column: stack label + switch vertically so
+   the column reads top-to-bottom like the sibling fields next to it,
+   instead of label-left / switch-right (which looks lopsided when the
+   label wraps to two lines). */
+.settings-field-row .toggle-group.toggle-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+}
+@media (max-width: 640px) {
+  .settings-field-row { grid-template-columns: 1fr !important; }
+}
+
+/* Subsection title — lighter visual weight than the main section title,
+   used inside the Integrations group to separate Library / Media-server /
+   Send-to-client. */
+.settings-subsection-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin: 14px 0 8px;
+  padding: 0;
+}
+.settings-subsection-title:first-of-type { margin-top: 0; }
+.field-help {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+/* Inline result for Test buttons in the integrations panel. */
+.settings-test-msg {
+  margin-left: 8px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+}
+.settings-test-msg.ok   { color: var(--accent2); }
+.settings-test-msg.fail { color: var(--danger); }
+
+.folder-row { display: flex; gap: 8px; align-items: center; }
+.folder-row .search-input { flex: 1; font-size: 13px; }
+
+.toggle-group { display: flex; align-items: center; justify-content: space-between; }
+.toggle { position: relative; display: inline-block; width: 40px; height: 22px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-track {
+  position: absolute; inset: 0;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  left: 3px; top: 3px;
+  width: 14px; height: 14px;
+  background: var(--text-muted);
+  border-radius: 0;
+  transition: transform 0.2s, background 0.2s;
+}
+.toggle input:checked + .toggle-track          { background: rgba(200,245,66,0.15); border-color: var(--accent); }
+.toggle input:checked + .toggle-track::after   { transform: translateX(18px); background: var(--accent); }
+
+/* Site config cards */
+.site-cfg-card {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 16px;
+  margin-bottom: 10px;
+  background: var(--bg2);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: var(--shadow-card);
+}
+.site-cfg-card:hover { box-shadow: var(--shadow-elev); }
+.site-cfg-card.disabled { opacity: 0.5; }
+.site-cfg-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.site-cfg-name {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--text);
+  text-transform: uppercase;
+}
+.site-cfg-fields { display: flex; flex-direction: column; gap: 8px; }
+.site-cfg-field  { display: flex; flex-direction: column; gap: 4px; }
+.site-cfg-field label { font-size: 12px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; }
+.site-cfg-field input {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 0;
+  outline: none;
+}
+.site-cfg-field input:focus { border-color: var(--accent); }
+.site-cfg-note {
+  font-size: 11px;
+  color: var(--warning);
+  padding: 6px 0 0;
+  font-style: italic;
+}
+
+.sources-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+.sites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.settings-actions { display: flex; align-items: center; gap: 16px; }
+.saved-msg        { font-size: 14px; color: var(--accent2); }
+
+.lang-options { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ─── PROFILE BAR ─────────────────────────────────────────────────────────── */
+.profile-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: nowrap;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 0; padding: 14px 18px; margin-bottom: 24px;
+  box-shadow: var(--shadow-card);
+}
+.profile-bar-left  { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; min-width: 0; }
+.profile-bar-right { display: flex; gap: 8px; }
+.profile-select {
+  background: var(--bg3); border: 1px solid var(--border2);
+  color: var(--text); font-family: var(--mono); font-size: 14px;
+  padding: 6px 10px; border-radius: 0; outline: none; cursor: pointer;
+  min-width: 160px;
+}
+.profile-select:focus { border-color: var(--accent); }
+
+/* In the Settings panel, selects sit next to text inputs in the same row
+   (e.g. "Server type" + "URL"). The default select padding is shorter than
+   the search-input padding, which makes the two visually misaligned. Scope
+   a Settings-only override that matches the input height + hover/focus
+   treatment so the row reads as a single horizontal control set. */
+.settings-grid .profile-select,
+.settings-section .profile-select {
+  padding: 11px 14px;
+  font-size: 14px;
+  width: 100%;
+  min-width: 0;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.settings-grid .profile-select:hover,
+.settings-section .profile-select:hover {
+  background: var(--bg2);
+  border-color: var(--text-muted);
+}
+.settings-grid .profile-select:focus,
+.settings-section .profile-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(200, 245, 66, 0.12);
+  background: var(--bg2);
+}
+body[data-theme="light"] .settings-grid .profile-select:focus,
+body[data-theme="light"] .settings-section .profile-select:focus {
+  box-shadow: 0 0 0 3px rgba(90, 154, 0, 0.15);
+}
+
+/* ─── TOS OVERLAY ─────────────────────────────────────────────────────────── */
+.tos-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.92);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+.tos-overlay.hidden { display: none; }
+.tos-box {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 0;
+  width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.tos-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 14px;
+}
+.tos-warning {
+  width: 32px; height: 32px;
+  background: var(--warning);
+  color: var(--primary-fg);
+  font-weight: 800;
+  font-size: 20px;
+  border-radius: 0;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.tos-header h2 { font-size: 22px; font-weight: 800; }
+.tos-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--text-dim);
+}
+.tos-body::-webkit-scrollbar       { width: 3px; }
+.tos-body::-webkit-scrollbar-track { background: transparent; }
+.tos-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+.tos-body h3 { color: var(--text); font-size: 14px; margin: 14px 0 6px; letter-spacing: 1px; text-transform: uppercase; }
+.tos-body p  { margin-bottom: 10px; }
+.tos-section-body { margin-bottom: 10px; }
+.tos-section-body ul { margin: 6px 0 6px 20px; }
+.tos-section-body li { margin: 2px 0; }
+.tos-section-body code { font-family: 'Roboto Mono', Consolas, monospace; font-size: 12px; padding: 1px 4px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); }
+.tos-section-body a { color: var(--accent); text-decoration: underline; }
+.tos-section-body a:hover { color: var(--accent2); }
+body[data-theme="light"] .tos-section-body code { background: rgba(0,0,0,0.04); }
+/* Full legal document (legal-content.js) rendered straight into .tos-body. */
+.tos-courtesy-banner { background: rgba(200,245,66,0.10); border-left: 3px solid var(--accent); padding: 8px 10px; margin: 0 0 14px; font-size: 12px; color: var(--text-dim); }
+.tos-body h2 { color: var(--text); font-size: 15px; margin: 18px 0 8px; }
+.tos-body h2:first-child { margin-top: 0; }
+.tos-body h3 { text-transform: none; letter-spacing: 0; }
+.tos-body h4 { color: var(--text-dim); font-size: 12.5px; margin: 10px 0 4px; font-weight: 600; }
+.tos-body ul { margin: 6px 0 8px 20px; }
+.tos-body li { margin: 3px 0; }
+.tos-actions {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  /* Stack vertically: checkboxes get the full width for their (long) labels,
+     the Continue button sits below them, bottom-right. */
+  display: flex; flex-direction: column; align-items: stretch; gap: 14px;
+}
+.tos-actions #tos-accept-btn { align-self: flex-end; }
+/* Double acceptance (art. 1341 c.c.): a general acceptance flag + a specific
+   approval flag for the vexatious clauses. Both required, plus scroll-to-end.
+   Rendered as the standard FLUX lime switch (.toggle/.toggle-track). */
+.tos-checks { display: flex; flex-direction: column; gap: 12px; }
+.tos-check {
+  display: flex; align-items: flex-start; gap: 12px;
+  cursor: pointer; font-size: 13px; color: var(--text-dim); line-height: 1.4;
+}
+.tos-check .toggle { flex: none; margin-top: 1px; }
+.tos-check-text { flex: 1; }
+.tos-check-1341 { color: var(--text); }
+/* Scroll-to-end gating: until the user reaches the bottom of the TOS only the
+   "scroll to the bottom to enable" notice shows; once .tos-scrolled is set the
+   notice disappears and the two acceptance checkboxes appear. */
+.tos-overlay:not(.tos-scrolled) .tos-checks { display: none; }
+.tos-overlay.tos-scrolled .tos-scroll-hint { display: none; }
+.tos-scroll-hint {
+  font-size: 13px;
+  color: var(--warning);
+  font-style: italic;
+}
+/* Yellow fill-in placeholders inside the legal text (name, e-mail, date…). */
+.tos-fill { background: rgba(255,210,40,0.22); color: var(--text); padding: 0 3px; border-radius: 2px; font-style: italic; }
+
+/* ─── QUEUE ───────────────────────────────────────────────────────────────── */
+.queue-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.queue-list    { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; min-height: 40px; }
+
+/* Queue table — give the Name column most of the row, keep Format / Status
+   compact. Format reads as a small tag, status as a coloured dot. */
+.queue-table .th-grip   { width: 28px; padding: 0; }
+.queue-table .th-fmt    { width: 90px; }
+.queue-table .th-status { width: 60px; text-align: center; }
+.queue-table .td-grip   {
+  width: 28px;
+  padding: 0 4px;
+  color: var(--text-muted);
+  cursor: grab;
+  text-align: center;
+  vertical-align: middle;
+}
+.queue-table tr[draggable="true"]:active .td-grip { cursor: grabbing; }
+.queue-table .td-grip svg { width: 16px; height: 16px; opacity: 0.6; }
+.queue-table .grip-placeholder { display: inline-block; width: 16px; height: 16px; }
+.queue-table .td-fmt    { width: 90px; }
+.queue-table .td-status { width: 60px; text-align: center; }
+
+/* Drag-drop visual feedback. The dragged source dims; the target gets a
+   2px lime accent bar at top or bottom edge depending on cursor position
+   in the target row. */
+.queue-table tr.drag-source { opacity: 0.4; }
+.queue-table tr.drag-over-top    { box-shadow: inset 0  2px 0 0 var(--accent); }
+.queue-table tr.drag-over-bottom { box-shadow: inset 0 -2px 0 0 var(--accent); }
+.queue-table .td-name { min-width: 0; }
+.queue-table .td-name-main { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-table .td-name-sub  {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-fmt-tag {
+  display: inline-block;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: rgba(200,245,66,0.10);
+}
+body[data-theme="light"] .queue-fmt-tag { background: rgba(163,122,0,0.10); }
+.queue-item {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 0; padding: 12px 16px;
+  font-size: 14px; transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: var(--shadow-card);
+}
+.queue-item:hover { box-shadow: var(--shadow-elev); }
+.queue-item {
+  border-left: 3px solid var(--border2);
+  transition: border-left-color 0.15s;
+}
+.queue-item.status-pending { border-left-color: var(--text-muted); }
+.queue-item.status-running { border-left-color: var(--warning); }
+.queue-item.status-done    { border-left-color: var(--accent2); opacity: 0.75; }
+.queue-item.status-failed  { border-left-color: var(--danger); }
+
+/* Colored status dot between title and format chip */
+.status-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 0;
+  flex-shrink: 0;
+  cursor: help;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.status-dot-pending { background: var(--text-muted); }
+.status-dot-running { background: var(--warning); animation: pulse 1s infinite; }
+.status-dot-done    { background: var(--accent2); }
+.status-dot-failed  { background: var(--danger); }
+.queue-item-icon  { font-size: 16px; width: 18px; text-align: center; flex-shrink: 0; }
+.queue-item-body  { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.queue-item-name  { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.queue-item-url   { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-item-type  { font-size: 12px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; flex-shrink: 0; }
+.queue-item-remove{ background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 0 4px; transition: color 0.12s; }
+.queue-item-remove:hover { color: var(--danger); }
+.queue-item-preview{ background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 0 6px; transition: color 0.12s; }
+.queue-item-preview:hover { color: var(--accent2); }
+.queue-empty { color: var(--text-muted); font-size: 14px; padding: 20px 0; }
+.queue-result-ok  { color: var(--accent2); font-size: 13px; }
+.queue-result-err { color: var(--danger);  font-size: 13px; }
+
+/* ─── RSS ─────────────────────────────────────────────────────────────────── */
+.rss-layout { display: grid; grid-template-columns: 220px 1fr; gap: 20px; min-height: 400px; }
+@media (max-width: 800px) { .rss-layout { grid-template-columns: 1fr; } }
+
+/* rss-top-toolbar is an alias of .top-toolbar; visual styling is owned by the
+   unified class. Keep the selector only for backward-compat with existing markup. */
+.rss-top-toolbar { /* inherits from .input-zone/.top-toolbar */ }
+.rss-feed-count { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+.rss-sidebar { background: var(--bg2); border: 1px solid var(--border); border-radius: 0; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow-card); }
+.rss-sidebar-header { display: flex; align-items: center; justify-content: space-between; }
+.feed-list { list-style: none; display: flex; flex-direction: column; gap: 4px; flex: 1; overflow-y: auto; }
+.feed-item {
+  display: flex; align-items: stretch; justify-content: space-between; gap: 6px;
+  padding: 10px 12px; border-radius: 0;
+  cursor: pointer; font-size: 14px; color: var(--text-dim);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  border: 1px solid transparent;
+}
+.feed-item:hover  { background: var(--bg3); color: var(--text); border-color: var(--border); }
+.feed-item.active { background: rgba(200,245,66,0.06); color: var(--accent); border-color: rgba(200,245,66,0.3); }
+.feed-item-body   { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.feed-item-name   { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.feed-item-meta   { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.feed-item-host   { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.feed-item-sep    { opacity: 0.4; }
+.feed-badge {
+  display: inline-block; padding: 1px 6px; border-radius: 0;
+  font-size: 10px; font-weight: 700; line-height: 14px;
+  background: rgba(200,245,66,0.15); color: var(--accent);
+  border: 1px solid rgba(200,245,66,0.3); margin-left: auto;
+}
+.feed-list-empty { color: var(--text-muted); font-size: 11px; padding: 8px; text-align: center; }
+/* Small green dot (top-right of a sidebar feed row) marking feeds that
+   have auto-update enabled. Uses --accent2 (mint green) to differentiate
+   from the lime --accent. Pointer-events:none so it doesn't eat the click. */
+.feed-item { position: relative; }
+.feed-item-auto-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  color: var(--accent2);
+  pointer-events: none;
+  opacity: 0.95;
+}
+.feed-item-auto-dot .lucide-slot svg { width: 12px; height: 12px; }
+
+/* Auto-update toggle (right column) — fixed 75px width so it doesn't shrink
+   when the feed name input takes up most of the row. */
+#tab-rss #rss-feed-auto + .lucide-slot, /* dummy keep specificity */
+#tab-rss .rss-items-toolbar > .radio-card { width: 75px; flex-shrink: 0; }
+
+.rss-feed-filter { flex: 1; max-width: 240px; height: 32px; font-size: 13px; }
+
+.rss-main { background: var(--bg2); border: 1px solid var(--border); border-radius: 0; padding: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow-card); }
+.rss-empty { color: var(--text-muted); margin: auto; text-align: center; padding: 40px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.rss-empty-icon { font-size: 48px; opacity: 0.6; color: var(--accent); }
+.rss-empty-icon svg { width: 48px; height: 48px; }
+.rss-empty-title { font-size: 15px; color: var(--text-dim); }
+.rss-empty-hint { font-size: 12px; color: var(--text-muted); max-width: 340px; line-height: 1.5; }
+.rss-items-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+
+/* Playlist tab — drop the rss-main card styling so only the inner table reads
+   as a card. Toolbar (title + delete) stays inline on one row. */
+#tab-playlist .rss-main,
+#tab-rss .rss-main {
+  background: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+/* RSS feed toolbar — keep name input + auto-update toggle + delete on one row */
+#tab-rss .rss-items-toolbar { flex-wrap: nowrap; }
+#tab-rss #rss-feed-name-edit { flex: 1 1 auto; min-width: 0; }
+#tab-playlist .rss-items-toolbar {
+  flex-wrap: nowrap;
+  margin-bottom: 10px;
+}
+#tab-playlist #playlist-name-edit { flex: 1 1 auto; min-width: 0; }
+#tab-playlist .results-table-wrap {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  padding: 0;
+  box-shadow: var(--shadow-card);
+}
+
+/* Playlist row drag handle + dnd visual feedback */
+.playlist-drag-handle {
+  display: inline-flex; align-items: center;
+  cursor: grab;
+  color: var(--text-muted);
+  margin-right: 6px;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+.playlist-drag-handle:hover { opacity: 1; color: var(--accent); }
+.playlist-drag-handle .lucide-slot svg { width: 14px; height: 14px; }
+.playlist-row-num { font-variant-numeric: tabular-nums; }
+.playlist-table tr.is-dragging { opacity: 0.4; }
+.playlist-table tr.drop-above { box-shadow: inset 0 2px 0 var(--accent); }
+.playlist-table tr.drop-below { box-shadow: inset 0 -2px 0 var(--accent); }
+.playlist-table .td-type { width: 36px; text-align: center; }
+.playlist-table .td-type .lucide-slot svg { width: 16px; height: 16px; }
+.playlist-table .td-num  { width: 72px; }
+.playlist-table .td-name-main { color: var(--text); }
+.playlist-table .td-name-sub  {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.rss-feed-title { font-weight: 600; font-size: 16px; color: var(--text); }
+.rss-auto-toggle {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-dim);
+  cursor: pointer;
+}
+.rss-auto-toggle input { accent-color: var(--accent); }
+.rss-items-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; max-height: 460px; }
+
+.rss-item {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 0; padding: 12px 16px;
+  font-size: 14px; transition: border-color 0.12s, box-shadow 0.12s;
+}
+.rss-item:hover { box-shadow: var(--shadow-card); }
+.rss-item:hover { border-color: var(--border2); }
+.rss-item-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.rss-item-title  { font-weight: 600; color: var(--text); line-height: 1.4; flex: 1; min-width: 0; }
+.rss-item-author { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.rss-item-date   { font-size: 11px; font-weight: 600; color: var(--text-dim); white-space: nowrap; }
+.rss-item-duration { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.rss-item-side {
+  /* Vertical stack on the right: date (small bold), duration, then the type
+     tag — gives the type ("article", "audio", etc.) its own line below the
+     date so it doesn't crowd the right edge of the title row. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.rss-item-desc   { color: var(--text-dim); font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
+.rss-item-actions{ display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.btn-rss-action  {
+  /* Sized to match the Media-tab action buttons: same font-size, padding,
+     margin-top so single-button rows like "Open link" don't read as tiny
+     next to multi-button rows. */
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 14px; font-weight: 600;
+  padding: 9px 16px; margin-top: 10px;
+  border-radius: 0; cursor: pointer;
+  border: 1px solid var(--border2); background: transparent;
+  color: var(--text-dim); transition: all 0.12s; letter-spacing: 0.5px;
+}
+.btn-rss-action:hover { color: var(--accent); border-color: var(--accent); }
+.btn-rss-action .lucide-slot svg { width: 16px; height: 16px; }
+
+.rss-type-badge {
+  font-size: 10px; font-weight: 600; letter-spacing: 1px;
+  text-transform: uppercase; padding: 2px 7px;
+  border-radius: 0; flex-shrink: 0;
+}
+.rss-type-torrent { background: rgba(200,245,66,0.12);  color: var(--accent);  border: 1px solid var(--accent); }
+.rss-type-media   { background: rgba(61,255,160,0.10);  color: var(--accent2); border: 1px solid var(--accent2); }
+.rss-type-link    { background: rgba(153,153,153,0.10); color: var(--text-muted); border: 1px solid var(--border2); }
+
+/* ─── MODAL ───────────────────────────────────────────────────────────────── */
+.modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 500;
+}
+.modal.hidden { display: none; }
+.modal-box {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 0; padding: 26px; width: 420px; max-width: 90vw;
+  box-shadow: var(--shadow-elev);
+}
+.modal-box-lg { width: 600px; max-height: 80vh; overflow-y: auto; }
+
+/* XTRACT > Image — crop canvas + draggable rect. The rect is masked by a
+   giant box-shadow trick (an inner-transparent shape with 9999px outside
+   shadow creates the vignette over the rest of the image without needing
+   four separate mask divs). */
+.img-crop-stage {
+  margin: 10px 0;
+  /* Card-bg (not black) — the area outside the image just blends with the
+     surrounding card. Black caused the "dark overlay covers the page"
+     perception when the image was narrower than the card. */
+  background: transparent;
+  padding: 0;
+  border-left: 3px solid var(--accent);
+  line-height: 0;
+  /* Window-relative max-height — leaves room for the page header, the
+     crop card's controls, and the surrounding chrome. 540px fixed was
+     wasting space on tall monitors; min(85vh, …) caps it on tiny ones. */
+  max-height: min(85vh, calc(100vh - 240px));
+  /* CSS Grid with place-items handles both centring-when-small and
+     overflow-when-large without the `safe center` quirks that flexbox
+     has with scroll origins. The grid item (the wrap) takes its natural
+     intrinsic size and the stage scrolls around it. */
+  display: grid;
+  place-items: start center;
+  overflow: auto;
+}
+.img-crop-zoom-bar { display: inline-flex; align-items: center; gap: 4px; line-height: 1; }
+.img-crop-zoom-bar .btn-icon { width: 24px; height: 24px; padding: 0; }
+.img-crop-zoom-bar .btn-icon .lucide-slot svg { width: 14px; height: 14px; }
+.img-crop-zoom-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 38px;
+  text-align: center;
+}
+.img-crop-stage.hidden { display: none; }
+.img-crop-wrap {
+  position: relative;
+  /* Shrink to the image's natural display dimensions AND clip the rect's
+     9999px box-shadow vignette to the image bounds. Without overflow:
+     hidden the shadow leaked past the image edges and looked like a full-
+     card dark overlay. */
+  display: inline-block;
+  max-height: 500px;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-drag: none;
+  vertical-align: top;
+}
+.img-crop-wrap #img-crop-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 500px;
+  width: auto;
+  height: auto;
+  pointer-events: none;  /* clicks pass to the wrap for new-rect dragging */
+}
+.img-crop-rect {
+  position: absolute;
+  border: 2px solid var(--accent);
+  /* The vignette: 9999px box-shadow with rgba black darkens everything
+     outside the rect. Cheap, robust, no extra DOM. */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  cursor: move;
+  box-sizing: border-box;
+}
+.img-crop-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border: 1px solid #000;
+  /* The handle z-index above the rect ensures hit-testing picks them
+     first when the rect is small (the rect's resize-cursor would otherwise
+     fight with the handle's). */
+  z-index: 2;
+}
+.img-crop-handle.h-tl { top: -6px;    left: -6px;   cursor: nwse-resize; }
+.img-crop-handle.h-tr { top: -6px;    right: -6px;  cursor: nesw-resize; }
+.img-crop-handle.h-bl { bottom: -6px; left: -6px;   cursor: nesw-resize; }
+.img-crop-handle.h-br { bottom: -6px; right: -6px;  cursor: nwse-resize; }
+
+.img-crop-aspect-row { gap: 6px; margin: 8px 0; }
+.img-aspect-btn {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  min-width: auto;
+}
+.img-aspect-btn.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+.img-crop-coords-row { margin-top: 8px; gap: 6px; align-items: center; }
+/* Wider X/Y/W/H inputs — original 60px clipped 4-digit values at HD
+   resolution (e.g. "1188" rendered as "118…"). Bumped to 72px = +12px
+   to comfortably fit 5 digits. Specific selector overrides the global
+   .xtract-fade-dur rule that other XTRACT inputs use. */
+.img-crop-coords-row input.xtract-fade-dur { width: 72px; flex: 0 0 72px; }
+/* Meta info row above the aspect presets — tag-style chips. First chip
+   is the natural-resolution badge; future tags (file size, EXIF date,
+   colour space, etc.) chain here without re-layouting. */
+.img-crop-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 6px 0 8px;
+  min-height: 22px;
+}
+.img-crop-meta-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(200, 245, 66, 0.10);
+  border: 1px solid var(--accent);
+  padding: 3px 8px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.img-crop-meta-tag:empty { display: none; }
+
+/* Effects card — sliders in a 2-column grid (3 rows on desktop, 1 column
+   on narrow modal). Each row: label · slider · value badge. Toggle row
+   below uses regular btn-sm with .active state for the 3 one-clicks. */
+.img-fx-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin: 10px 0;
+}
+@media (max-width: 720px) { .img-fx-grid { grid-template-columns: 1fr; } }
+.img-fx-slider-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.img-fx-label {
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.img-fx-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  text-align: right;
+}
+/* Slider styling — matches FLUX lime accent. Cross-browser dance: chrome
+   uses ::-webkit-slider-thumb, firefox uses ::-moz-range-thumb. */
+.img-fx-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  outline: none;
+  cursor: pointer;
+}
+.img-fx-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 1px solid #000;
+  cursor: grab;
+}
+.img-fx-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 1px solid #000;
+  cursor: grab;
+}
+.img-fx-toggles-row { margin-top: 10px; gap: 6px; align-items: center; flex-wrap: wrap; }
+.img-fx-toggle-btn {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  padding: 4px 12px;
+  min-width: auto;
+}
+.img-fx-toggle-btn.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+/* Watermark colour input — native <input type=color> is awkward, this
+   trims the chrome to look like a colour swatch button. */
+.img-wm-color {
+  width: 36px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  cursor: pointer;
+}
+.img-dedup-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Side-by-side compare stage — two layered <img>s with clip-path on the
+   "B" image revealing only the right portion. Draggable divider sits at
+   the clip boundary. Slider below moves both. */
+.img-compare-stage {
+  position: relative;
+  margin: 10px 0;
+  background: #000;
+  overflow: hidden;
+  text-align: center;
+  line-height: 0;
+  max-height: 500px;
+}
+.img-compare-stage.hidden { display: none; }
+.img-compare-layer {
+  display: block;
+  max-width: 100%;
+  max-height: 500px;
+  width: auto;
+  height: auto;
+  margin: 0 auto;
+  pointer-events: none;
+}
+/* The B image is positioned absolute on top of A and clipped via inset.
+   --split is the percent revealed from the LEFT (inverse of the right
+   inset). Updated live from the slider. */
+.img-compare-b {
+  position: absolute;
+  inset: 0;
+  margin: 0 auto;
+  clip-path: inset(0 0 0 var(--split, 50%));
+}
+.img-compare-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--split, 50%);
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  box-shadow: 0 0 8px rgba(200, 245, 66, 0.5);
+}
+.img-compare-divider::before,
+.img-compare-divider::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 18px;
+  background: var(--accent);
+  border: 1px solid #000;
+  border-radius: 50%;
+}
+.img-compare-divider::before { top: 50%; }
+.img-compare-divider::after  { display: none; }  /* one handle is enough */
+.img-compare-label {
+  position: absolute;
+  top: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--accent);
+  padding: 10px 4px;
+  border: 1px solid var(--accent);
+  letter-spacing: 1px;
+}
+.img-compare-label-a { left: 8px; }
+.img-compare-label-b { right: 8px; }
+
+/* Image Editor (USE tab) — mirrors Tag Editor layout (sidebar + main).
+   The .tag-main override below strips the card background + padding so
+   the operation cards become the only visual chunks, taking the full
+   column width. .img-card border-left stays as the lime accent stripe. */
+#tab-images .tag-main { background: transparent; padding: 0; }
+.img-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  overflow-y: auto;
+  width: 100%;
+}
+.img-card {
+  /* Full-width within the column, edge-to-edge. The lime stripe replaces
+     the card's prior background as the only chrome. */
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--bg2);
+  padding: 10px 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.img-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.img-card-help { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4; }
+
+/* Stacked field — label above, input below. Default fit-content width so
+   neighbours can also fit; .img-field-grow takes remaining space; the
+   icon-only Apply button (.img-card-apply) docks to the right. */
+.img-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.img-row-fullwidth .img-field-grow { width: 100%; }
+.img-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 80px;
+}
+.img-field-grow { flex: 1 1 200px; }
+.img-field-spacer { flex: 1 1 auto; }
+.img-field-label {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.img-field input.search-input,
+.img-field select { width: 100%; }
+.img-field-color input[type="color"] {
+  width: 36px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  cursor: pointer;
+}
+.img-field-toggle .toggle { margin-top: 4px; }
+.img-card-apply { align-self: flex-end; margin-bottom: 0; }
+
+/* 9-cell position picker. Replaces the previous <select> with a visual
+   3×3 grid where the active cell is highlighted lime, mirroring the
+   anchor placement of the watermark on the actual image. */
+.img-wm-pos-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 14px);
+  grid-template-rows: repeat(3, 14px);
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  width: fit-content;
+}
+.img-wm-pos-grid button {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.img-wm-pos-grid button:hover:not(.active) { border-color: var(--accent); }
+.img-wm-pos-grid button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Thumbnail in the file list — small inline preview so the user can match
+   a row to a visual at a glance, without opening a system file manager. */
+.img-file-thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  flex-shrink: 0;
+}
+.tag-file-meta-dim {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  margin-left: auto;
+  padding-right: 6px;
+  white-space: nowrap;
+}
+
+/* Dedup modal — fingerprint duplicate finder. Each group is a card with
+   per-file rows; first row is the "keep" candidate, others are pre-trashed
+   (checkbox checked = will be moved to trash). */
+.dedup-progress { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+.dedup-status   { font-size: 12px; color: var(--text-dim); flex: 1 0 auto; }
+.dedup-results  { display: flex; flex-direction: column; gap: 12px; max-height: 50vh; overflow-y: auto; margin-top: 8px; }
+.dedup-group    { border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--bg2); }
+.dedup-group-title { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+.dedup-row      { display: grid; grid-template-columns: 18px 60px 70px 1fr; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; cursor: pointer; }
+.dedup-row:hover { background: var(--bg3); }
+.dedup-row-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; font-weight: 600; }
+.dedup-keep     { color: var(--accent2); }
+.dedup-trash    { color: var(--danger); }
+.dedup-row-size { color: var(--text-muted); font-family: var(--mono); font-size: 11px; text-align: right; }
+.dedup-row-path { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dedup-results::-webkit-scrollbar       { width: 3px; }
+.dedup-results::-webkit-scrollbar-track { background: transparent; }
+.dedup-results::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+
+/* Similar-photos gallery (visual "pick the best" review). */
+.similar-results { display: flex; flex-direction: column; gap: 14px; max-height: 58vh; overflow-y: auto; margin-top: 8px; padding-right: 4px; }
+.similar-results::-webkit-scrollbar       { width: 3px; }
+.similar-results::-webkit-scrollbar-track { background: transparent; }
+.similar-results::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+.similar-group { border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 8px 12px 12px; background: var(--bg2); }
+.similar-group-title { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
+.similar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.similar-card { border: 1px solid var(--border); background: var(--bg3); padding: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 5px; transition: border-color .12s, box-shadow .12s; }
+.similar-card:hover { border-color: var(--border2); }
+.similar-card.is-keep { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.similar-thumb-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; background: var(--bg1); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.similar-thumb { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.similar-badge { position: absolute; top: 4px; right: 4px; background: var(--accent); color: var(--bg1); font-size: 12px; line-height: 1; padding: 3px 5px; font-weight: 700; border-radius: 2px; }
+.similar-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
+.similar-sharp { display: flex; align-items: center; }
+.similar-sharp-bar { flex: 1; height: 4px; background: var(--bg1); border: 1px solid var(--border); overflow: hidden; }
+.similar-sharp-fill { display: block; height: 100%; background: var(--accent); }
+.similar-keep { display: flex; align-items: center; gap: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-dim); cursor: pointer; }
+.similar-card.is-keep .similar-keep { color: var(--accent); font-weight: 600; }
+.similar-name { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Batch torrent search modal (queue → "Torrent from list"). */
+.tbatch-textarea { width: 100%; resize: vertical; min-height: 84px; font-family: var(--mono); font-size: 12px; margin-bottom: 8px; box-sizing: border-box; }
+.tbatch-controls { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.tbatch-minseeds { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.tbatch-minseeds input { width: 64px; }
+.tbatch-results { display: flex; flex-direction: column; gap: 12px; max-height: 46vh; overflow-y: auto; margin-top: 6px; }
+.tbatch-results::-webkit-scrollbar { width: 3px; }
+.tbatch-results::-webkit-scrollbar-track { background: transparent; }
+.tbatch-results::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 0; }
+.tbatch-group { border: 1px solid var(--border); border-left: 3px solid var(--accent); background: var(--bg2); padding: 6px 10px; }
+.tbatch-group-title { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+.tbatch-group-title.is-empty { opacity: 0.7; }
+.tbatch-row { display: grid; grid-template-columns: 18px 16px 1fr 52px 72px 64px; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; cursor: pointer; }
+.tbatch-row:hover { background: var(--bg3); }
+.tbatch-row input { accent-color: var(--accent); }
+.tbatch-best { color: var(--accent); display: inline-flex; }
+.tbatch-best-spacer { display: inline-block; }
+.tbatch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbatch-seeds { text-align: right; font-family: var(--mono); }
+.tbatch-size, .tbatch-site { color: var(--text-muted); font-size: 11px; }
+.modal-box-video {
+  width: 880px;
+  max-width: 96vw;
+  height: auto;
+  max-height: 92vh;
+  padding: 18px;
+  /* User-resizable: drag the bottom-right corner to enlarge the preview.
+     `overflow: auto` is required for the resize handle to appear. */
+  resize: both;
+  overflow: auto;
+  min-width: 480px;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+.modal-box-video .modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.modal-box-video #video-preview-element {
+  width: 100%;
+  flex: 1 1 auto;             /* fill the resizable modal-box vertically */
+  min-height: 240px;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  display: block;
+  margin: 6px 0 10px;
+}
+/* Image preview modal — single <img> centred in a flexible container.
+   max-height + object-fit:contain keeps tall portrait shots and wide
+   panoramas both readable without scaling beyond the modal box. */
+.image-preview-stage {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  margin: 6px 0 10px;
+  min-height: 240px;
+  max-height: 70vh;
+  overflow: hidden;
+}
+.image-preview-stage img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  display: block;
+}
+.image-preview-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  padding: 4px 0 8px;
+  word-break: break-all;
+}
+/* Drop the aspect-ratio when the modal-box is taller than 16:9 so the video
+   fills the available height. */
+.modal-box-video[data-grown="1"] #video-preview-element {
+  aspect-ratio: auto;
+}
+/* Fullscreen-toggle button in the title bar — uses Lucide "zap" as a stand-in
+   for an "expand" glyph until we add a dedicated maximize icon. */
+.video-preview-fs {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  width: 32px; height: 32px;
+}
+.video-preview-fs:hover { color: var(--accent); border-color: var(--accent); }
+.video-preview-meta { font-size: 12px; color: var(--text-muted); word-break: break-all; margin-bottom: 10px; }
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 18px; }
+.muted { color: var(--text-muted); font-size: 13px; }
+
+/* Downloads tracker list (inside #downloads-modal) */
+.dl-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 0; margin-bottom: 8px; background: var(--bg);
+}
+.dl-item-info { flex: 1; min-width: 0; }
+.dl-item-title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl-item-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.dl-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+/* Per-item progress bar inside the Downloads modal. Shown only while the
+   download is running; same visual idiom as the queue dot/status pills. */
+.dl-item-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.dl-item-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.dl-item-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.dl-item-progress-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 45px;
+  text-align: right;
+}
+
+/* Media format radio that the probed source can't satisfy (e.g. 1080p
+   on a 720p-only video). Dimmed + struck-through label, but still
+   clickable in case the user wants to try anyway (yt-dlp will pick the
+   best available fallback). */
+.media-format-unavailable {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+.dl-item-status { font-size: 11px; padding: 2px 8px; border-radius: 0; font-weight: 600; }
+.dl-item-status.pending { background: rgba(255,180,0,0.15); color: #ffb400; }
+.dl-item-status.running { background: rgba(0,160,255,0.15); color: #0af; }
+.dl-item-status.done { background: rgba(0,200,100,0.15); color: #0c6; }
+.dl-item-status.error { background: rgba(255,80,80,0.15); color: #f55; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+
+/* ─── UPDATER BANNER ──────────────────────────────────────────────────────── */
+.updater-banner {
+  position: sticky;
+  top: -36px;
+  margin: -36px -40px 24px;
+  padding: 12px 24px;
+  background: var(--accent);
+  color: var(--primary-fg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 10;
+  font-weight: 600;
+}
+.updater-banner.hidden { display: none; }
+.updater-banner-actions { display: flex; gap: 8px; align-items: center; }
+
+/* ─── FLAG DROPDOWN ───────────────────────────────────────────────────────── */
+.flag-select { position: relative; display: inline-block; min-width: 220px; }
+.flag-select-button {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 0;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.flag-select-button:hover { border-color: var(--text-dim); }
+.flag-select-button:focus { outline: none; border-color: var(--accent); }
+.flag-icon-slot {
+  display: inline-flex;
+  width: 24px; height: 16px;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: 0;
+  overflow: hidden;
+  border: 1px solid var(--border2);
+}
+.flag-icon-slot svg { display: block; width: 100%; height: 100%; }
+.flag-label { flex: 1; text-align: left; }
+.flag-arrow { color: var(--text-muted); font-size: 12px; }
+
+.flag-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 0;
+  list-style: none;
+  padding: 4px;
+  margin: 0;
+  z-index: 50;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.flag-select-menu li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text);
+  transition: background 0.1s;
+}
+.flag-select-menu li:hover { background: var(--bg3); }
+
+/* ─── MEDIA TITLE PREVIEW (probed via yt-dlp) ─────────────────────────────── */
+/* Title preview lives INSIDE the URL .input-zone (which already provides the
+   "card" framing — bg2 + border + lime stripe). No nested card styling here
+   — just stacked text content. State (probing/valid/invalid) drives only
+   the small status dot before the title text. */
+.media-title-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px;
+  background: transparent;
+  border: none;
+}
+.media-title-preview .media-title-text::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: var(--border2);
+  transition: background 0.15s;
+}
+.media-title-preview.preview-probing .media-title-text::before { background: var(--warning); animation: pulse-yellow 1.4s ease-in-out infinite; }
+.media-title-preview.preview-valid   .media-title-text::before { background: var(--accent2); }
+.media-title-preview.preview-invalid .media-title-text::before { background: var(--danger); }
+.media-title-preview.preview-invalid .media-title-text { color: var(--danger); }
+
+.media-title-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-title-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── PLAIN INPUT (no native dropdown/autocomplete UI) ────────────────────── */
+.plain-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+.plain-input::-webkit-calendar-picker-indicator { display: none !important; }
+.plain-input::-webkit-list-button { display: none !important; }
+
+/* Radio: borderless inline favorite star (icon only, no button shape) */
+.btn-row-fav {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: color 0.12s, transform 0.08s;
+}
+.btn-row-fav:hover  { color: var(--warning); transform: scale(1.15); }
+.btn-row-fav.is-fav { color: var(--warning); }
+.btn-row-fav.is-fav svg { fill: currentColor; }
+
+/* Radio play/stop button — explicit colors for the stop state (orange) */
+.btn-radio-stop {
+  color: var(--warning) !important;
+  border-color: var(--warning) !important;
+  background: rgba(255,183,0,0.08) !important;
+}
+
+/* ─── RADIO TAB ───────────────────────────────────────────────────────────── */
+/* Both rows sit inside the same .input-zone (stacked variant) — keep their
+   internal spacing identical to the actions row above, so the filters don't
+   feel like a separate panel. Reference: Spotify top toolbar single-row gap. */
+.radio-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+.radio-actions-row .search-input { flex: 1 1 220px; min-width: 220px; }
+
+.radio-filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: flex-end;
+  width: 100%;
+}
+.radio-filter {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 140px;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 200px;
+  min-width: 180px;
+  max-width: 280px;
+}
+.radio-filter-label {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.radio-filter .profile-select { width: 100%; min-width: 0; }
+/* radio-now-playing → replaced by global-player-bar */
+
+/* ─── TAG EDITOR ──────────────────────────────────────────────────────────── */
+/* tag-top-toolbar inherits .input-zone styling (bg/border/padding/stripe) —
+   keep only Tag-specific layout overrides here. */
+.tag-top-toolbar { /* inherits from .input-zone */ }
+.toolbar-divider {
+  display: inline-block;
+  width: 1px;
+  height: 24px;
+  background: var(--border2);
+  margin: 0 6px;
+}
+/* Forces a wrap inside a flex .input-zone: items after it start on a new row. */
+.toolbar-break {
+  flex-basis: 100%;
+  width: 100%;
+  height: 0;
+  margin: 0;
+}
+.btn-icon {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text-dim);
+  padding: 6px 10px;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 0;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+  min-width: 36px;
+}
+.btn-icon:hover:not(:disabled) { color: var(--text); border-color: var(--text-dim); }
+.btn-icon:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-icon-primary { color: var(--accent); border-color: var(--accent); }
+.btn-icon-primary:hover:not(:disabled) { background: rgba(200,245,66,0.08); }
+.btn-icon-danger  { color: var(--danger); border-color: var(--danger); }
+.btn-icon-danger:hover:not(:disabled)  { background: rgba(255,77,77,0.08); }
+.toolbar-toggle {
+  /* Match the 36px height of adjacent .btn-icon buttons so the toolbar row
+     reads as one visual line. Accent state inherits from .radio-card:has(:checked). */
+  padding: 0 12px !important;
+  font-size: 12px !important;
+  line-height: 1;
+  height: 36px;
+  box-sizing: border-box;
+}
+.tag-file-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+/* Compact selects living inside an icon toolbar (e.g. File & Sync) — sized to
+   match the 36px .btn-icon height so the whole row reads as one line. */
+.tag-top-toolbar .tb-select {
+  height: 36px;
+  box-sizing: border-box;
+  padding: 2px 8px;
+  font-size: 12px;
+  max-width: 220px;
+}
+/* Selected source → destination paths, shown under the File & Sync toolbar. */
+.files-paths-status {
+  display: flex; align-items: center; gap: 10px;
+  margin: -8px 0 14px; padding: 0 4px;
+  font-size: 12px; color: var(--text-muted);
+}
+.files-path-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.files-path-chip .files-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 36vw; }
+.files-path-arrow { color: var(--text-dim); flex: none; }
+/* Fixed one-line explanation of the chosen sync mode, under the paths. */
+.files-mode-desc {
+  margin: 0 0 14px; padding: 0 4px;
+  font-size: 12px; font-style: italic; color: var(--text-dim);
+  min-height: 16px;
+}
+/* Icon-only single-choice segmented control (sync mode + file filter). */
+.seg-icons { display: inline-flex; border: 1px solid var(--border2); }
+.seg-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 36px; min-width: 40px; padding: 0 10px; box-sizing: border-box;
+  cursor: pointer; color: var(--text-dim);
+  border-left: 1px solid var(--border2);
+  transition: color 0.12s, background 0.12s;
+}
+.seg-icon:first-child { border-left: 0; }
+.seg-icon input { display: none; }
+.seg-icon:hover { color: var(--text); }
+.seg-icon:has(:checked) { background: rgba(200,245,66,0.10); color: var(--accent); }
+body[data-theme="light"] .seg-icon:has(:checked) { background: rgba(120,160,20,0.12); }
+.tag-file-count.loading {
+  color: var(--warning);
+}
+.tag-file-count.loading::first-letter { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.tag-layout {
+  display: grid;
+  /* 3-column grid: file list | draggable splitter | form. Width of column 1
+     is set inline via --tag-sidebar-w (default 50%) and persisted in
+     config.tag_sidebar_width. The splitter (8px) lets the user drag. */
+  grid-template-columns: var(--tag-sidebar-w, 50%) 8px minmax(0, 1fr);
+  grid-template-rows: minmax(540px, auto) auto;
+  gap: 16px;
+  min-height: 540px;
+}
+.tag-splitter {
+  display: flex; align-items: center; justify-content: center;
+  cursor: col-resize;
+  background: transparent;
+  color: var(--text-muted);
+  user-select: none;
+  position: relative;
+}
+.tag-splitter::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 50%;
+  width: 1px; margin-left: -0.5px;
+  background: var(--border2);
+  transition: background 0.15s ease;
+}
+.tag-splitter:hover::before,
+.tag-splitter.is-dragging::before { background: var(--accent); width: 3px; margin-left: -1.5px; }
+.tag-splitter .lucide-slot svg { width: 14px; height: 14px; pointer-events: none; }
+body.tag-splitter-active { cursor: col-resize !important; user-select: none !important; }
+.tag-log-row {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+@media (max-width: 900px) {
+  .tag-layout { grid-template-columns: 1fr; }
+  .tag-splitter { display: none; }
+}
+
+.tag-file-meta-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tag-file-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tag-file-actions .btn-sm {
+  padding: 6px 12px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Hide the cover img element when no source set (prevents broken-image icon) */
+#tag-cover-img.hidden { display: none; }
+
+.tag-sidebar {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow-card);
+}
+/* Drag highlight on the whole tag tab when files are being dragged over */
+#tab-tag.drag-over { outline: 2px dashed var(--accent); outline-offset: -8px; }
+.tag-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tag-pattern-section {
+  padding: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 0;
+}
+.tag-pattern-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tag-pattern-row .profile-select,
+.tag-pattern-row .search-input { font-size: 12px; padding: 6px 10px; }
+.tag-file-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 480px;
+}
+.tag-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: background 0.1s, color 0.1s;
+  border: 1px solid transparent;
+}
+.tag-file-item:hover { background: var(--bg3); color: var(--text); }
+.tag-file-item.active {
+  background: rgba(200,245,66,0.06);
+  color: var(--accent);
+  border-color: rgba(200,245,66,0.2);
+}
+/* Per-row bulk-select checkbox. Static size; click is captured separately
+   from the row click so toggling doesn't switch the active file. */
+.tag-file-check {
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.tag-file-check:disabled { cursor: default; opacity: 0.4; }
+
+/* Tag form: edited-since-selection indicator. Yellow border + matching focus
+   ring tells the user "this is a field you changed, and it's the one that
+   will get replicated when you press Apply to selected." Cleared on file
+   switch / after a successful bulk-apply. */
+.tag-input-edited,
+.tag-input-edited:focus {
+  border-color: var(--warning) !important;
+  box-shadow: 0 0 0 1px var(--warning);
+}
+.tag-file-ext {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  padding: 2px 5px;
+  border-radius: 0;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  min-width: 32px;
+  text-align: center;
+}
+.tag-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-main {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-card);
+}
+.tag-empty {
+  margin: auto;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 40px;
+}
+.tag-form { display: flex; flex-direction: column; gap: 12px; }
+.tag-cover-wrap {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 12px;
+}
+.tag-cover-wrap img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  background: var(--bg);
+  border-radius: 0;
+  flex-shrink: 0;
+}
+.tag-cover-wrap img:not([src]) { display: block; }
+.tag-file-meta {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.tag-file-path {
+  /* Full-width path row below the cover. break-word lets long single-token
+     paths wrap nicely even when the column is narrow (no per-char column). */
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  line-height: 1.45;
+}
+.tag-fields { display: flex; flex-direction: column; gap: 10px; }
+.tag-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+.tag-fields .field-group { margin-bottom: 0; }
+.tag-fields .search-input { font-size: 13px; padding: 8px 10px; }
+.tag-fields textarea {
+  resize: vertical;
+  min-height: 50px;
+  max-height: 200px;
+  font-family: var(--mono);
+}
+
+/* ─── GLOBAL PLAYER (inside topbar — always visible, no sticky) ────────── */
+/* The .global-player-bar selector now applies to the compact topbar widget */
+.global-player-icon {
+  font-size: 16px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.global-player-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; line-height: 1.2; }
+.global-player-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.global-player-source {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Empty state — when nothing playing, fade the widget */
+.topbar-player:not(.is-playing) .global-player-source,
+.topbar-player:not(.is-playing) .global-player-icy { display: none; }
+.topbar-player:not(.is-playing) .global-player-title { color: var(--text-muted); }
+.global-player-icy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent2);
+  margin-top: 2px;
+}
+.global-player-icy-title {
+  font-weight: 600;
+  max-width: 600px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-icon-small {
+  background: transparent;
+  border: 1px solid var(--accent2);
+  color: var(--accent2);
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.btn-icon-small:hover { background: rgba(61,255,160,0.12); }
+
+/* Button loading state — hide ONLY the text/icon content, keep the button
+   itself looking normal (background + border + size unchanged). On completion
+   removing .btn-loading restores everything verbatim.
+   When the caller also sets [disabled] for click protection we override the
+   global :disabled grey/opacity look so the button reads as BUSY, not OFF. */
+.btn-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+.btn-loading > * { visibility: hidden; }
+.btn.btn-loading:disabled,
+.btn-primary.btn-loading:disabled,
+.btn-ghost.btn-loading:disabled,
+.btn-sm.btn-loading:disabled,
+.btn-danger-sm.btn-loading:disabled {
+  opacity: 1 !important;
+  cursor: wait;
+  filter: none !important;
+}
+.btn-primary.btn-loading:disabled { background: var(--accent) !important; border-color: var(--accent) !important; }
+.btn-ghost.btn-loading:disabled,
+.btn-sm.btn-loading:disabled       { background: transparent !important; }
+.btn-icon.btn-loading:disabled     { opacity: 1; cursor: wait; }
+.btn-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid var(--text-muted);
+  border-top-color: var(--accent);
+  /* Explicit circle — overrides the global border-radius:0 brutalist reset. */
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+/* Radio-card that holds a checkbox (Include subfolders) — same style as radios */
+.radio-card-check input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0; height: 0;
+}
+.radio-card-check:has(input:checked) {
+  border-color: var(--accent2);
+  color: var(--accent2);
+  background: rgba(61,255,160,0.06);
+}
+.radio-card-check:has(input:checked) span::before {
+  content: '✓ ';
+  font-weight: 700;
+}
+
+/* ─── MODULES LIST ────────────────────────────────────────────────────────────
+   Settings > Modules. Each module renders as a card with name, description,
+   status badge, and the list of required vendor binaries. Phase 1: all
+   modules show "Installed & Enabled" — Phase 2 will add a toggle. */
+.settings-section-help {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: -8px 0 16px;
+  line-height: 1.5;
+}
+.modules-list {
+  display: grid;
+  gap: 12px;
+  /* 2 columns when there's room; collapses to 1 on narrow Settings panes
+     (e.g. sidebar expanded + small window). 360px floor keeps the
+     description + bin chips from compressing into unreadable pillars. */
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+.module-card {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px 16px;
+  background: var(--surface-2, var(--bg));
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 16px;
+  align-items: start;
+}
+.module-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.module-card-id {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+.module-card-desc {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.module-card-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.module-bin-chip {
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  color: var(--text-dim);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+}
+.module-bin-chip.is-missing {
+  color: var(--danger, #e15a5a);
+  border-color: var(--danger, #e15a5a);
+}
+.module-bin-chip.is-present {
+  color: var(--accent2, var(--accent, #c8f542));
+  border-color: var(--accent2, var(--accent, #c8f542));
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.module-bin-chip.is-present [data-lucide-icon] { display: inline-flex; }
+/* Phase 2b — missing binaries render as an actionable download button that
+   matches the chip footprint but signals "click me" with the accent border. */
+.module-bin-fetch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--accent, #c8f542);
+  background: transparent;
+  color: var(--accent, #c8f542);
+  padding: 2px 8px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.module-bin-fetch-btn:hover { background: var(--accent, #c8f542); color: var(--bg1, #0b0b0b); }
+.module-bin-fetch-btn.is-fetching { opacity: 0.7; cursor: progress; }
+.module-bin-fetch-btn.is-error { border-color: var(--danger, #e15a5a); color: var(--danger, #e15a5a); }
+.module-bin-fetch-btn [data-lucide-icon] { display: inline-flex; }
+/* Light theme: dark (readable) text on the dependency-download buttons. */
+body[data-theme="light"] .module-bin-fetch-btn { color: var(--primary-fg); }
+
+/* Send-to-client button when the integration is OFF: greyed but still
+   clickable (a click jumps to its settings). */
+.btn-save-row.is-inactive, .btn-icon.is-inactive { opacity: 0.4; cursor: pointer; }
+.btn-save-row.is-inactive:hover, .btn-icon.is-inactive:hover { opacity: 0.75; }
+.is-inactive svg { stroke: var(--text-muted) !important; }
+
+/* "Get all dependencies" — primary fetch action for a whole module (filled accent). */
+.module-bin-fetch-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--accent, #c8f542);
+  background: var(--accent, #c8f542);
+  color: var(--primary-fg, #0b0b0b);
+  padding: 2px 8px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.module-bin-fetch-all-btn:hover { opacity: 0.85; }
+.module-bin-fetch-all-btn.is-fetching { opacity: 0.7; cursor: progress; }
+.module-bin-fetch-all-btn.is-error { background: var(--danger, #e15a5a); border-color: var(--danger, #e15a5a); color: #fff; }
+.module-bin-fetch-all-btn [data-lucide-icon] { display: inline-flex; }
+
+/* Indeterminate state for the shared progress bar — used during the
+   resolve/extract phases where there's no byte-count to drive a percentage. */
+.progress-bar.is-indeterminate {
+  width: 35% !important;
+  background: var(--accent, #c8f542);
+  animation: flux-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes flux-indeterminate {
+  0%   { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+
+/* ─── Unified download view (#tab-download) + shared binfetch checklist ─── */
+.dlview-card {
+  max-width: 560px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #c8f542);
+  padding: 18px 20px;
+  margin-top: 4px;
+}
+.dlview-actions { display: flex; gap: 10px; margin-top: 16px; }
+/* Clip the fill so the indeterminate slide animation stays inside the track. */
+#dlview-progress { overflow: hidden; }
+/* Per-archive checklist (• pending → ▸ active → ✓ done), shared by the view. */
+.binfetch-list {
+  list-style: none;
+  margin: 4px 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.binfetch-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+.binfetch-item-state { width: 14px; text-align: center; flex-shrink: 0; color: var(--text-dim); }
+.binfetch-item-state::before { content: "·"; }
+.binfetch-item.is-active .binfetch-item-state::before { content: "▸"; color: var(--accent, #c8f542); }
+.binfetch-item.is-done   .binfetch-item-state::before { content: "✓"; color: var(--accent2, var(--accent, #c8f542)); }
+.binfetch-item.is-active { color: var(--text); }
+.binfetch-item-name { flex: 1; font-family: var(--mono, ui-monospace, monospace); }
+.binfetch-item-size {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.binfetch-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--danger, #e15a5a);
+}
+.module-status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border: 1px solid var(--accent, #c8f542);
+  color: var(--accent, #c8f542);
+  align-self: start;
+}
+.module-status-badge.is-required {
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+}
+/* Disabled module card — dim the whole content so the user immediately
+   sees which modules are off. Toggle stays full-opacity so it's clearly
+   actionable. */
+.module-card.is-disabled .module-card-head,
+.module-card.is-disabled .module-card-desc,
+.module-card.is-disabled .module-card-meta {
+  opacity: 0.45;
+}
+/* Restart-needed banner — sits above the module list when toggling a
+   module's state. The action button reuses .btn-primary so the visual
+   weight matches the rest of the Settings page. Hidden by default and
+   un-hidden by showModulesRestartBanner via .is-visible. */
+.modules-restart-banner {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--accent);
+  background: rgba(200, 245, 66, 0.08);
+}
+.modules-restart-banner.is-visible { display: flex; }
+.modules-restart-msg { color: var(--text); font-size: 13px; }
+.modules-restart-btn { white-space: nowrap; }
+
+/* ─── FILES & SYNC module ───────────────────────────────────────────────── */
+.files-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* Row 1 — source + destination side by side, each btn + truncating path. */
+.files-paths { gap: 24px; }
+.files-pathgroup { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 280px; }
+.files-drive { flex: 0 0 auto; min-width: 96px; max-width: 150px; }
+.files-path {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+/* Video Editor — command top-toolbar (like the other editors) + rename row. */
+.video-top-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.video-top-toolbar .tb-select { min-width: 86px; max-width: 130px; height: 30px; padding: 2px 8px; }
+.video-folder-row { margin: 8px 0 2px; }
+.video-folder-row .files-path { font-size: 12px; color: var(--text-dim); font-family: var(--mono, ui-monospace, monospace); }
+#vid-progress { margin-top: 12px; overflow: hidden; }
+.fm-rename-row { gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+.fm-rename-row .files-field input { min-width: 150px; }
+.fm-num input { width: 80px; min-width: 80px; }
+.files-grow.fm-nochange { opacity: 0.45; }
+.files-grow.fm-dup .files-grow-dst .files-name { color: var(--danger, #e15a5a); }
+
+/* Profiles row — saved source/dest/mode/filter sets. */
+.files-profiles { gap: 12px; align-items: flex-end; }
+.files-profiles .files-field select { min-width: 260px; }
+/* Row 2 — mode / filter / transcode / preview / sync, bottom-aligned. */
+.files-options { gap: 18px; align-items: flex-end; }
+.files-toggle { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-dim); cursor: pointer; padding-bottom: 6px; }
+.files-toggle input { accent-color: var(--accent, #c8f542); cursor: pointer; }
+.files-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.files-field select { min-width: 240px; }
+
+/* FreeFileSync-style comparison grid: source | action+checkbox | destination. */
+.files-grid-wrap {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+}
+.files-grid-head, .files-grow {
+  display: grid;
+  grid-template-columns: 1fr 92px 1fr;
+  align-items: center;
+}
+.files-grid-head {
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.files-grid-head > div { padding: 7px 12px; }
+.files-grid-head .files-grid-cell-act { text-align: center; }
+.files-grid-head .files-grid-cell-dst { text-align: left; }
+.files-grid { max-height: 46vh; overflow: auto; }
+.files-grow { border-bottom: 1px solid var(--border2, var(--border)); font-size: 12px; }
+.files-grow:hover { background: rgba(255,255,255,0.03); }
+body[data-theme="light"] .files-grow:hover { background: rgba(0,0,0,0.03); }
+.files-grow-src, .files-grow-dst { display: flex; align-items: center; gap: 8px; padding: 5px 12px; min-width: 0; }
+.files-name { font-family: var(--mono, ui-monospace, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.files-name.files-absent { color: var(--text-muted, var(--text-dim)); opacity: 0.5; flex: none; }
+.files-sz { color: var(--text-dim); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+.files-grow-act { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 5px 6px; }
+.files-row-check { accent-color: var(--accent, #c8f542); cursor: pointer; }
+.files-row-nocheck { width: 13px; }
+.files-act { display: inline-flex; align-items: center; justify-content: center; }
+.files-act .lucide-slot { display: inline-flex; }
+/* Per-category accent on the action glyph + a left stripe on the row. */
+.files-cat-new    .files-act { color: var(--accent2, var(--accent, #c8f542)); }
+.files-cat-update .files-act { color: var(--warning, #e0b341); }
+.files-cat-delete .files-act { color: var(--danger, #e15a5a); }
+.files-cat-ignore .files-act { color: var(--text-dim); }
+.files-grid-empty { padding: 16px; text-align: center; color: var(--text-dim); font-size: 12px; }
+
+/* Footer — category filter chips (left) + stats (right). */
+.files-grid-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--bg3);
+  border-top: 1px solid var(--border);
+}
+.files-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.files-filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border2, var(--border));
+  background: transparent;
+  color: var(--text-dim);
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+.files-filter-chip .files-chip-sym { display: inline-flex; align-items: center; }
+.files-filter-chip .files-chip-sym .lucide-slot { display: inline-flex; }
+.files-filter-chip strong { color: var(--text); }
+.files-filter-chip.is-active { border-color: var(--accent, #c8f542); color: var(--text); }
+.files-filter-chip.files-cat-delete.is-active { border-color: var(--danger, #e15a5a); }
+.files-filter-chip.is-empty { opacity: 0.4; cursor: default; }
+.files-stats { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-dim); }
+.files-stat { display: inline-flex; align-items: center; gap: 5px; }
+.files-stat .lucide-slot { display: inline-flex; }
+.files-stat strong { color: var(--text); }
+.files-stat.is-danger strong { color: var(--danger, #e15a5a); }
+.files-stat-sep { padding-left: 14px; border-left: 1px solid var(--border); }
+
+.files-empty {
+  margin-top: 14px; padding: 14px 16px;
+  background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent2, var(--accent, #c8f542));
+  font-size: 13px; color: var(--text-dim);
+}
+#files-progress { margin-top: 14px; overflow: hidden; }
+
+/* ─── UTILS ───────────────────────────────────────────────────────────────── */
+.hidden { display: none !important; }

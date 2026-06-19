@@ -1,0 +1,182 @@
+{
+  "name": "flux-hub",
+  "version": "1.0.0",
+  "description": "FLUX — Fetch, Load, Use & eXtract. Open-source media manager built on Electron, yt-dlp and ffmpeg.",
+  "main": "main.js",
+  "license": "GPL-3.0-or-later",
+  "author": {
+    "name": "Enrico Tommasini",
+    "email": "flux.hub.app@gmail.com"
+  },
+  "scripts": {
+    "start": "electron .",
+    "fetch-ytdlp": "node scripts/fetch-ytdlp.js",
+    "fetch-ffmpeg": "node scripts/fetch-ffmpeg.js",
+    "build-icons": "node scripts/build-icons.js",
+    "fetch-chromaprint": "node scripts/fetch-chromaprint.js",
+    "fetch-all": "node scripts/fetch-ytdlp.js && node scripts/fetch-ffmpeg.js && node scripts/fetch-chromaprint.js",
+    "build:win": "cross-env NODE_OPTIONS=--no-deprecation electron-builder --win",
+    "build:mac": "cross-env NODE_OPTIONS=--no-deprecation electron-builder --mac",
+    "build:linux": "cross-env NODE_OPTIONS=--no-deprecation electron-builder --linux",
+    "build:all": "cross-env NODE_OPTIONS=--no-deprecation electron-builder --win --mac --linux"
+  },
+  "build": {
+    "appId": "com.fluxhub.app",
+    "productName": "FLUX Hub",
+    "copyright": "© 2026 Enrico Tommasini and FLUX contributors — released under GPL-3.0-or-later. See LICENSE.",
+    "afterPack": "./scripts/after-pack.js",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "binary-fetcher.js",
+      "shims/**/*",
+      "modules/**/*",
+      {
+        "from": "renderer",
+        "to": "renderer",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": [
+          "**/*"
+        ]
+      },
+      "!node_modules/@ffmpeg-installer/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/node-shazam/**/*",
+      "node_modules/shazamio-core/**/*",
+      "node_modules/fluent-ffmpeg/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "flux-hub-app",
+        "repo": "flux-hub"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "legalTrademarks": "FLUX is an independent open-source project. Not affiliated with, sponsored by, or endorsed by any third-party media platform or rights holder."
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.utilities",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "FLUX uses the microphone to record audio for the Capture tool and to identify songs (Shazam / AcoustID).",
+        "NSCameraUsageDescription": "FLUX does not use the camera. This entry is required by macOS for the WebRTC stack used by the screen recorder.",
+        "NSScreenCaptureUsageDescription": "FLUX captures the screen and individual windows for the Capture > Record screen feature."
+      }
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Network;AudioVideo",
+      "synopsis": "FLUX — Legal media & torrent manager",
+      "description": "FLUX: Fetch, Load, Use & eXtract. Legal media downloads, RSS/podcast feeds, internet radio, music tagging, and song recognition. Bundles yt-dlp; no DRM circumvention."
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FLUX"
+    },
+    "dmg": {
+      "title": "FLUX",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "fabric": "^7.4.0",
+    "music-metadata": "^10.9.1",
+    "node-id3": "^0.2.9",
+    "node-shazam": "^1.2.7",
+    "pdfjs-dist": "^5.7.284",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.0.0",
+    "cross-env": "^10.1.0",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "lucide": "^1.17.0",
+    "png-to-ico": "^3.0.1",
+    "png2icons": "^2.0.1"
+  },
+  "optionalDependencies": {
+    "electron-updater": "^6.1.7"
+  }
+}

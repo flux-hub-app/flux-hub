@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>FLUX</title>
+  <style>
+    /* Self-contained — no external CSS so this loads in a single round-trip. */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: #0b0b0b;
+      color: #ececec;
+      font-family: 'Syne', 'Segoe UI', sans-serif;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .wrap {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 26px;
+      padding: 48px 44px;
+      -webkit-app-region: drag; /* let the user drag the frameless splash */
+    }
+    /* Brand block: FLUX wordmark + HUB spread edge-to-edge underneath,
+       echoing the app icon (HUB spans from the F's start to its end). */
+    .brand {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .brand-logo {
+      width: 290px;
+      max-width: 100%;
+      height: auto;
+      flex-shrink: 0;
+      filter: drop-shadow(0 0 40px rgba(200, 245, 66, 0.2));
+    }
+    .logo {
+      font-size: 72px;
+      font-weight: 800;
+      letter-spacing: 8px;
+      color: #c8f542;
+      text-shadow: 0 0 40px rgba(200, 245, 66, 0.25);
+      line-height: 1;
+    }
+    .logo-sub {
+      text-align: center;
+      font-weight: 600;
+      font-size: 18px;
+      letter-spacing: 3px;
+      padding-left: 3px; /* offset trailing tracking so it stays optically centered */
+      text-transform: uppercase;
+      color: #c8f542;
+      line-height: 1;
+      text-shadow: 0 0 24px rgba(200, 245, 66, 0.2);
+    }
+    .spinner {
+      width: 36px; height: 36px;
+      flex-shrink: 0;            /* keep it perfectly round (flex was squashing it) */
+      border: 3px solid #2f2f2f;
+      border-top-color: #c8f542;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .msg {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 3px;
+      color: #808080;
+      text-transform: uppercase;
+    }
+    .ver {
+      position: absolute;
+      bottom: 14px;
+      right: 18px;
+      font-size: 10px;
+      color: #505050;
+      letter-spacing: 1px;
+    }
+    /* Volume/mute toggle, bottom-left. no-drag so the click registers inside
+       the draggable splash. */
+    .vol-btn {
+      position: absolute;
+      bottom: 10px;
+      left: 12px;
+      -webkit-app-region: no-drag;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: #808080;
+      padding: 4px;
+      line-height: 0;
+      transition: color 0.15s;
+    }
+    .vol-btn:hover { color: #c8f542; }
+    .vol-btn svg { width: 18px; height: 18px; display: block; }
+    .vol-btn .vol-off { display: none; }
+    .vol-btn.muted .vol-on { display: none; }
+    .vol-btn.muted .vol-off { display: block; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">
+      <img class="brand-logo" src="../assets/flux-hub.svg" alt="FLUX Hub — Fetch, Load, Use, Xtract" />
+    </div>
+    <div class="spinner"></div>
+    <div class="msg">Loading...</div>
+  </div>
+  <div class="ver">v1.0.0</div>
+  <button class="vol-btn" id="vol-btn" type="button" aria-label="Mute">
+    <span class="vol-on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></span>
+    <span class="vol-off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg></span>
+  </button>
+  <audio id="splash-jingle" src="../assets/splash.mp3" preload="auto"></audio>
+  <script>
+    // Honor the splash-audio setting passed from main.js as ?audio=0|1.
+    // When disabled, skip wiring up the <audio> entirely (no preload).
+    const tag = '[splash-audio]';
+    const audioEnabled = new URLSearchParams(location.search).get('audio') !== '0';
+    const GAIN = 0.25;                 // 25% of the original (user-set)
+    const volBtn = document.getElementById('vol-btn');
+    let jAudio = null, gainNode = null;
+    let muted = !audioEnabled;
+
+    function applyMuteUI() {
+      volBtn.classList.toggle('muted', muted);
+      volBtn.title = muted ? 'Unmute' : 'Mute';
+    }
+    // Mute/unmute the LIVE jingle AND persist the preference. The splash has
+    // no preload/IPC, so we signal main.js via a console marker — it listens
+    // and writes config.splash_audio (see createWindow's console-message hook).
+    function setMuted(m) {
+      muted = m;
+      if (gainNode) gainNode.gain.value = m ? 0 : GAIN;
+      else if (jAudio) jAudio.muted = m;
+      applyMuteUI();
+      console.log(tag, m ? 'pref-off' : 'pref-on');
+    }
+    volBtn.addEventListener('click', () => setMuted(!muted));
+    applyMuteUI();
+
+    jAudio = audioEnabled ? document.getElementById('splash-jingle') : null;
+    if (jAudio) {
+      const j = jAudio;
+      // Normalize on the way in (DynamicsCompressor evens peaks) + gain node at
+      // 25%. Element volume stays 1.0 so the gain node owns the level. Falls
+      // back to a plain 0.25 element volume if Web Audio is unavailable.
+      let audioCtx = null;
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AC();
+        const srcNode = audioCtx.createMediaElementSource(j);
+        const comp = audioCtx.createDynamicsCompressor();
+        comp.threshold.value = -24; comp.knee.value = 30; comp.ratio.value = 12;
+        comp.attack.value = 0.003; comp.release.value = 0.25;
+        const gain = audioCtx.createGain();
+        gain.gain.value = GAIN;
+        srcNode.connect(comp); comp.connect(gain); gain.connect(audioCtx.destination);
+        gainNode = gain;
+        j.volume = 1.0;
+        console.log(tag, 'web-audio normalize chain ready (compressor + ' + GAIN + ' gain)');
+      } catch (e) {
+        j.volume = GAIN;
+        console.error(tag, 'web-audio init failed, fallback to volume ' + GAIN + ':', e && e.message);
+      }
+      j.addEventListener('loadedmetadata', () => console.log(tag, 'loadedmetadata duration=', j.duration));
+      j.addEventListener('playing', () => console.log(tag, 'playing'));
+      j.addEventListener('ended',   () => console.log(tag, 'ended'));
+      j.addEventListener('error',   () => {
+        const code = j.error ? j.error.code : '?';
+        console.error(tag, 'ERROR code=', code, 'src=', j.currentSrc || j.src);
+      });
+      const tryPlay = () => {
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        j.play().then(() => console.log(tag, 'play() resolved'))
+                .catch(e => console.error(tag, 'play() rejected:', e && e.message));
+      };
+      if (j.readyState >= 3) tryPlay();
+      else j.addEventListener('canplay', tryPlay, { once: true });
+      setTimeout(() => { if (j.paused) tryPlay(); }, 500);
+    }
+  </script>
+</body>
+</html>
