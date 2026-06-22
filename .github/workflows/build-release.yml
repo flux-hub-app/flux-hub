@@ -58,6 +58,10 @@ jobs:
               dist/*.rpm
               dist/latest*.yml
 
+    env:
+      # Exposed so the signing steps can gate on it in `if:` (secrets aren't
+      # allowed directly in `if:`). Empty until you add the repo secret.
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,6 +110,35 @@ jobs:
           # the upload step instead, then the release job decides.
           PUBLISH_FOR_PULL_REQUEST: 'true'
         run: npm run ${{ matrix.build_script }} -- --publish never
+
+      # ── Windows code signing via SignPath (free for open-source) ──────────
+      # DORMANT until configured. To enable, add in the repo:
+      #   • Secret    SIGNPATH_API_TOKEN              (SignPath CI user token)
+      #   • Variable  SIGNPATH_ORGANIZATION_ID
+      #   • Variable  SIGNPATH_PROJECT_SLUG
+      #   • Variable  SIGNPATH_SIGNING_POLICY_SLUG
+      # Until the secret is set, Windows ships unsigned (SmartScreen "unknown
+      # publisher"). The signed .exe are written back into dist/ and picked up
+      # by the Upload step below.
+      - name: Upload unsigned EXEs for SignPath
+        id: unsigned_exe
+        if: matrix.os == 'windows-latest' && env.SIGNPATH_API_TOKEN != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-exe
+          path: dist/*.exe
+          if-no-files-found: error
+      - name: Sign Windows EXEs (SignPath)
+        if: matrix.os == 'windows-latest' && env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned_exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
