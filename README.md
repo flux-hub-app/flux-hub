@@ -9,6 +9,12 @@ juggling command lines or scattered websites.
 
 Everything runs locally on your device: **no account, no cloud, no telemetry, no ads.**
 
+## Download
+
+[![Download latest release](https://img.shields.io/github/v/release/flux-hub-app/flux-hub?display_name=tag&label=Download%20FLUX%20Hub&color=c8f542&style=for-the-badge)](https://github.com/flux-hub-app/flux-hub/releases/latest)
+
+**[⬇️ Get the latest version → Windows · macOS · Linux](https://github.com/flux-hub-app/flux-hub/releases/latest)** — just download the file for your system and run it. No account, no setup. (First launch shows a one-time security prompt on each OS — see [For the end user](#for-the-end-user).)
+
 > The installer is **slim** — the external binaries (yt-dlp, ffmpeg, fpcalc) are
 > downloaded automatically from their official upstream sources the first time you use
 > a feature that needs them.
@@ -27,6 +33,7 @@ queue) · **U**se (play, identify, edit) · e**X**tract (convert, compress, extr
 
 ## Contents
 
+- [Download](#download)
 - [For the end user](#for-the-end-user)
 - [Modules & features](#modules--features)
 - [Modular architecture](#modular-architecture)
