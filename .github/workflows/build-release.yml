@@ -41,14 +41,14 @@ jobs:
               dist/*.dmg
               dist/*.zip
               dist/*.blockmap
-              dist/*.yml
+              dist/latest*.yml
           - os: windows-latest
             build_script: build:win
             artifact_name: windows
             artifact_paths: |
               dist/*.exe
               dist/*.blockmap
-              dist/*.yml
+              dist/latest*.yml
           - os: ubuntu-22.04
             build_script: build:linux
             artifact_name: linux
@@ -56,7 +56,7 @@ jobs:
               dist/*.AppImage
               dist/*.deb
               dist/*.rpm
-              dist/*.yml
+              dist/latest*.yml
 
     steps:
       - name: Checkout
@@ -147,7 +147,7 @@ jobs:
             artifacts/**/*.deb
             artifacts/**/*.rpm
             artifacts/**/*.blockmap
-            artifacts/**/*.yml
+            artifacts/**/latest*.yml
           draft: true
           generate_release_notes: true
           name: FLUX Hub ${{ github.ref_name }}
