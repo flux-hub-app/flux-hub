@@ -316,6 +316,34 @@ APIs directly — the Electron security baseline.
 | **i18n** | Flat JSON per language | One file per locale in `renderer/languages/` |
 | **Icons** | Lucide (full set vendored) | `renderer/vendor/lucide.min.js`; used via `data-lucide-icon="kebab-name"` |
 
+### Why Electron, and not Tauri / Rust?
+
+The obvious question for a desktop app in 2026: *why not Tauri?* It would ship a far
+smaller installer — Tauri uses the operating system's own webview instead of bundling
+Chromium, so on Windows the installer would drop from **~147 MB to roughly 10–20 MB**
+(about 8–10× smaller; the gain is smaller on Linux, where WebKitGTK often has to be
+bundled anyway).
+
+We deliberately stay on Electron, for two reasons:
+
+1. **The size saving doesn't matter much here.** The heavy parts (ffmpeg, yt-dlp, fpcalc —
+   200+ MB) are already *not* in the installer; they're fetched on first use. What Tauri
+   would shave is the Chromium runtime — a one-time ~130 MB download, not a recurring cost.
+   For a media app whose binaries dwarf that, it's not the bottleneck.
+
+2. **Contributors matter more than megabytes.** This is open-source software meant to be
+   *accessible to as many people as possible*. JavaScript + HTML + CSS is the largest and
+   most approachable developer ecosystem in the world — the stack nearly everyone learns
+   first. A motivated newcomer can read `renderer.js`, change something, and see it work in
+   a refresh. Moving the backend to Rust would mean an ~8× smaller installer bought with a
+   rewrite of roughly a third of the codebase, in a language with a far steeper learning
+   curve and a much smaller contributor pool. For a community-driven project, an installer
+   that's lighter but scares off would-be contributors is a bad trade.
+
+In short: we'd rather spend 130 MB of disk than the much scarcer resource — the time and
+willingness of people who want to help. Electron keeps the door open to the widest set of
+contributors, and that is squarely the point of an open project.
+
 ### What's deliberately NOT here
 
 - **No cloud / account / telemetry** — offline-first; all external APIs are called directly from the user's machine
