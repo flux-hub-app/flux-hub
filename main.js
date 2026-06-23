@@ -1012,11 +1012,13 @@ async function radioSearch({ name, country, tag, language, limit = 30 }) {
 // Radio-browser mirrors. The metadata endpoints (countries/tags/languages) on a
 // single mirror sometimes return an empty array even when search works, so we
 // fail over across mirrors until one returns a non-empty list.
+// radio-browser.info rotates its mirror hostnames; nl1/at1 went dead (ENOTFOUND).
+// de1/de2 are live; `all.api` is the official round-robin DNS that resolves to
+// whichever servers are currently up — kept last as a self-healing fallback.
 const RADIO_MIRRORS = [
   'https://de1.api.radio-browser.info',
   'https://de2.api.radio-browser.info',
-  'https://nl1.api.radio-browser.info',
-  'https://at1.api.radio-browser.info'
+  'https://all.api.radio-browser.info'
 ];
 
 async function radioMeta(kind, limit = 500) {
@@ -1036,22 +1038,51 @@ async function radioMeta(kind, limit = 500) {
 }
 
 // ─── HTTP HELPERS (with User-Agent override, binary support) ─────────────────
-async function fetchJSONWithUA(url, ua, timeout = 15000, _redirects = 0) {
-  if (_redirects > 5) throw new Error('Too many redirects');
+// Low-level GET that prefers Electron's `net` (Chromium network stack → OS
+// certificate store + system proxy). This is critical behind corporate
+// TLS-intercepting proxies, where Node's bundled CA bundle rejects the chain
+// ("unable to verify the first certificate") — the same reason binary-fetcher.js
+// uses net. Falls back to Node http/https when Electron net isn't available.
+// Resolves to a Node-stream-like response ({ statusCode, headers, on('data'|'end'|'error') }).
+function httpGetStream(url, { ua = 'FLUX/1.0.0', accept, timeout = 15000, _redirects = 0 } = {}) {
+  let electronNet = null;
+  try { electronNet = require('electron').net; } catch { /* not in Electron */ }
+  if (electronNet) {
+    return new Promise((resolve, reject) => {
+      const req = electronNet.request({ url, redirect: 'follow' });
+      req.setHeader('User-Agent', ua);
+      if (accept) req.setHeader('Accept', accept);
+      const timer = setTimeout(() => { try { req.abort(); } catch {} reject(new Error('Timeout')); }, timeout);
+      req.on('response', res => { clearTimeout(timer); resolve(res); });
+      req.on('error', e => { clearTimeout(timer); reject(e); });
+      req.end();
+    });
+  }
+  if (_redirects > 5) return Promise.reject(new Error('Too many redirects'));
   const mod = url.startsWith('https') ? require('https') : require('http');
   return new Promise((resolve, reject) => {
-    const req = mod.get(url, { timeout, headers: { 'User-Agent': ua, 'Accept': 'application/json' } }, res => {
-      if ([301, 302, 307, 308].includes(res.statusCode)) {
+    const headers = { 'User-Agent': ua };
+    if (accept) headers['Accept'] = accept;
+    const req = mod.get(url, { timeout, headers }, res => {
+      if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
         req.destroy();
-        return fetchJSONWithUA(res.headers.location, ua, timeout, _redirects + 1).then(resolve).catch(reject);
+        return httpGetStream(res.headers.location, { ua, accept, timeout, _redirects: _redirects + 1 }).then(resolve).catch(reject);
       }
-      if (res.statusCode !== 200) { req.destroy(); return reject(new Error(`HTTP ${res.statusCode}`)); }
-      let d = '';
-      res.on('data', c => d += c);
-      res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error(`Invalid JSON: ${d.substring(0,80)}`)); } });
+      resolve(res);
     });
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+  });
+}
+
+async function fetchJSONWithUA(url, ua, timeout = 15000) {
+  const res = await httpGetStream(url, { ua, accept: 'application/json', timeout });
+  return new Promise((resolve, reject) => {
+    if (res.statusCode !== 200) { try { res.resume && res.resume(); } catch {} return reject(new Error(`HTTP ${res.statusCode}`)); }
+    let d = '';
+    res.on('data', c => d += c);
+    res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error(`Invalid JSON: ${d.substring(0,80)}`)); } });
+    res.on('error', reject);
   });
 }
 
@@ -6184,31 +6215,19 @@ function parseAtom(xml) {
 }
 
 // ─── FETCH HELPERS ───────────────────────────────────────────────────────────
-async function fetchJSON(url, timeout = 15000, _redirects = 0) {
-  if (_redirects > 5) throw new Error('Too many redirects');
-  const mod = url.startsWith('https') ? require('https') : require('http');
+async function fetchJSON(url, timeout = 15000) {
+  // Routes through httpGetStream (Electron net → system CA / proxy) like
+  // fetchJSONWithUA, so torrent-site search works behind TLS-intercepting proxies.
+  const res = await httpGetStream(url, { ua: 'Mozilla/5.0 (FLUX) AppleWebKit/537.36', timeout });
   return new Promise((resolve, reject) => {
-    const req = mod.get(url, {
-      timeout,
-      headers: { 'User-Agent': 'Mozilla/5.0 (FLUX) AppleWebKit/537.36' }
-    }, res => {
-      if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308) {
-        req.destroy();
-        return fetchJSON(res.headers.location, timeout, _redirects + 1).then(resolve).catch(reject);
-      }
-      if (res.statusCode !== 200) {
-        req.destroy();
-        return reject(new Error(`HTTP ${res.statusCode}`));
-      }
-      let d = '';
-      res.on('data', c => d += c);
-      res.on('end', () => {
-        try { resolve(JSON.parse(d)); }
-        catch { reject(new Error(`Invalid JSON from ${url}: ${d.substring(0,80)}`)); }
-      });
+    if (res.statusCode !== 200) { try { res.resume && res.resume(); } catch {} return reject(new Error(`HTTP ${res.statusCode}`)); }
+    let d = '';
+    res.on('data', c => d += c);
+    res.on('end', () => {
+      try { resolve(JSON.parse(d)); }
+      catch { reject(new Error(`Invalid JSON from ${url}: ${d.substring(0,80)}`)); }
     });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+    res.on('error', reject);
   });
 }
 
