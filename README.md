@@ -22,13 +22,6 @@ Everything runs locally on your device: **no account, no cloud, no telemetry, no
 The name says what it does: **F**etch (from public sources) · **L**oad (organise, tag,
 queue) · **U**se (play, identify, edit) · e**X**tract (convert, compress, extract).
 
-> 🇮🇹 **Italiano** — FLUX Hub è un media manager desktop gratuito e open-source (Windows,
-> macOS, Linux) che unifica strumenti come yt-dlp, ffmpeg e Chromaprint dietro un'unica
-> interfaccia: scarica media da fonti pubbliche, organizza e tagga la libreria, converti
-> ed edita — tutto **in locale, senza account, cloud, telemetria o pubblicità**. La
-> documentazione completa è in inglese qui sotto. Uso esclusivamente lecito: i Termini e
-> la Privacy (versione italiana vincolante) sono mostrati al primo avvio.
-
 ---
 
 ## Contents
