@@ -275,7 +275,15 @@
         </div>
         <div class="results-table-wrap">
           <table class="results-table">
-            <thead><tr><th data-i18n="th_num">#</th><th data-i18n="th_name">Name</th><th data-i18n="th_seeds">Seeds</th><th data-i18n="th_leech">Leeches</th><th data-i18n="th_size">Size</th><th data-i18n="th_source">Source</th><th></th></tr></thead>
+            <thead><tr>
+              <th data-i18n="th_num">#</th>
+              <th class="th-sort" data-sort="name"><span data-i18n="th_name">Name</span><span class="th-caret" data-lucide-icon="chevron-down" data-lucide-size="12"></span></th>
+              <th class="th-sort" data-sort="seeds"><span data-i18n="th_seeds">Seeds</span><span class="th-caret" data-lucide-icon="chevron-down" data-lucide-size="12"></span></th>
+              <th class="th-sort" data-sort="leeches"><span data-i18n="th_leech">Leeches</span><span class="th-caret" data-lucide-icon="chevron-down" data-lucide-size="12"></span></th>
+              <th class="th-sort" data-sort="size"><span data-i18n="th_size">Size</span><span class="th-caret" data-lucide-icon="chevron-down" data-lucide-size="12"></span></th>
+              <th class="th-sort" data-sort="site"><span data-i18n="th_source">Source</span><span class="th-caret" data-lucide-icon="chevron-down" data-lucide-size="12"></span></th>
+              <th></th>
+            </tr></thead>
             <tbody id="torrent-tbody"></tbody>
           </table>
         </div>
@@ -1781,6 +1789,27 @@
           </div>
         </div>
 
+        <!-- XTRACT > Image > Remove background (colour) — quick chroma-key.
+             Sets every pixel matching the picked background colour (within
+             tolerance) to transparent and saves a PNG (images:removeBgColor /
+             sharp). Solid-colour backgrounds only; arbitrary photos need the
+             AI path (roadmap). -->
+        <div class="xtract-card xtract-card-wide" data-applies-to="image" data-view="image">
+          <h3 class="xtract-card-title"><span data-lucide-icon="scissors"></span> <span data-i18n="xtract_image_rmbg_title">Remove background (color)</span></h3>
+          <p class="xtract-card-help" data-i18n="xtract_image_rmbg_help">Make a solid-colour background transparent. Pick the background colour and raise the tolerance to also catch nearby shades. Saved as a PNG with transparency.</p>
+          <div class="xtract-row img-recolor-row">
+            <label class="img-row-label" data-i18n="xtract_image_rmbg_color">Background</label>
+            <input type="color" id="img-rmbg-color" class="img-recolor-swatch" value="#ffffff" />
+            <span class="trim-row-spacer"></span>
+            <button class="btn btn-primary" id="img-rmbg-apply" data-lucide-icon="scissors" data-i18n="xtract_image_rmbg_apply" disabled>Remove</button>
+          </div>
+          <div class="xtract-row">
+            <label class="img-row-label" data-i18n="xtract_image_recolor_tol">Tolerance</label>
+            <input type="range" id="img-rmbg-tol" min="0" max="100" step="1" value="20" class="img-fx-slider" />
+            <span class="img-fx-value" id="img-rmbg-tol-v">20%</span>
+          </div>
+        </div>
+
         <!-- XTRACT > Image > Resize — single-file dimensional change.
              Same backend (sharp via images:resize) as the USE Image Editor
              batch op, exposed here so the user can resize without going
@@ -2256,14 +2285,58 @@
 
       <div id="add-source-modal" class="modal hidden" data-dismissible="true">
         <div class="modal-box">
-          <h3 class="modal-title" data-i18n="settings_add_source">Add Source</h3>
+          <div class="field-group" id="new-source-status-group"><label class="field-label" data-i18n="settings_source_status">Status</label>
+            <label class="toggle"><input type="checkbox" id="new-source-enabled" checked/><span class="toggle-track"></span></label></div>
+          <h3 class="modal-title" id="add-source-title" data-i18n="settings_add_source">Add Source</h3>
           <div class="field-group"><label class="field-label" data-i18n="settings_source_name">Source Name</label>
             <input type="text" id="new-source-name" class="search-input" data-i18n-ph="settings_source_name_ph" placeholder="e.g. MyTracker" /></div>
-          <div class="field-group"><label class="field-label" data-i18n="settings_api">API Base URL</label>
+          <div class="field-group"><label class="field-label" data-i18n="settings_source_type">Source Type</label>
+            <select id="new-source-type" class="search-input">
+              <option value="" data-i18n="settings_source_type_choose">— Choose a type —</option>
+              <option value="torznab" data-i18n="settings_source_type_torznab">Torznab (Jackett / Prowlarr)</option>
+              <option value="json" data-i18n="settings_source_type_json">JSON API</option>
+              <option value="rss" data-i18n="settings_source_type_rss">RSS feed</option>
+            </select></div>
+          <div class="field-group hidden" id="new-source-detect-group">
+            <div id="new-source-detect-status" class="source-detect-status"></div></div>
+          <div class="field-group" id="new-source-api-group"><label class="field-label" id="new-source-api-label" data-i18n="settings_api">API Base URL</label>
             <input type="text" id="new-source-api" class="search-input" placeholder="https://..." /></div>
+          <div class="field-group" id="new-source-max-group"><label class="field-label" data-i18n="settings_max_site">Max Results (blank = global)</label>
+            <input type="number" id="new-source-max" class="search-input" min="1" max="50" placeholder="" /></div>
+          <div class="field-group" id="new-source-apikey-group"><label class="field-label" data-i18n="settings_source_apikey">API key</label>
+            <input type="text" id="new-source-apikey" class="search-input" data-i18n-ph="settings_source_apikey_ph" placeholder="Torznab API key (from Jackett/Prowlarr)" /></div>
+          <div class="field-group" id="new-source-indexer-group"><label class="field-label" data-i18n="settings_source_indexers">Indexers</label>
+            <div class="indexer-picker-row">
+              <button type="button" class="btn btn-sm" id="new-source-load-indexers" data-lucide-icon="download-cloud"><span data-i18n="settings_source_load_indexers">Load indexers</span></button>
+              <select id="new-source-indexer" class="search-input hidden"></select>
+            </div></div>
+          <div class="field-group" id="new-source-mirrors-group"><label class="field-label" data-i18n="settings_source_mirrors">Mirror URLs (one per line, optional)</label>
+            <textarea id="new-source-mirrors" class="search-input" rows="3" spellcheck="false" placeholder="https://mirror1.example/api&#10;https://mirror2.example/api"></textarea></div>
+          <div class="field-group hidden" id="new-source-mapping-group"><label class="field-label" data-i18n="settings_source_mapping">Field mapping (JSON, optional)</label>
+            <textarea id="new-source-mapping" class="search-input" rows="4" spellcheck="false" placeholder='{ "path": "results", "name": "title", "seeds": "seeders", "size": "size_bytes", "infohash": "hash" }'></textarea></div>
+          <p class="modal-hint" id="new-source-hint" data-i18n="settings_source_hint_torznab">Point this at your Jackett/Prowlarr Torznab endpoint. Use {query} in the URL for JSON/RSS sources.</p>
           <div class="modal-actions">
             <button class="btn btn-ghost" id="add-source-cancel" data-i18n="rss_cancel">Cancel</button>
             <button class="btn btn-primary" id="add-source-confirm" data-i18n="rss_confirm">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Jackett/Prowlarr not detected: guided install popup (Torznab needs a
+           local indexer service; FLUX talks to it over HTTP on localhost). -->
+      <div id="jackett-install-modal" class="modal hidden" data-dismissible="true">
+        <div class="modal-box">
+          <h3 class="modal-title"><span data-lucide-icon="server-off"></span> <span data-i18n="jackett_install_title">Indexer service not found</span></h3>
+          <p class="modal-body" data-i18n="jackett_install_body">Torznab needs a local Jackett (or Prowlarr) service running on this machine. FLUX talks to it over localhost — the service is what actually searches the torrent sites. It runs locally but needs internet to search.</p>
+          <div class="jackett-install-platform" id="jackett-install-platform"></div>
+          <ol class="jackett-install-steps">
+            <li data-i18n="jackett_install_step1">Download and run Jackett for your platform.</li>
+            <li data-i18n="jackett_install_step2">It opens its dashboard at http://localhost:9117 — add the trackers you want.</li>
+            <li data-i18n="jackett_install_step3">Come back here and click "Load indexers".</li>
+          </ol>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" id="jackett-install-cancel" data-i18n="rss_cancel">Cancel</button>
+            <button class="btn btn-primary" id="jackett-install-download" data-lucide-icon="external-link"><span data-i18n="jackett_install_download">Open Jackett on GitHub</span></button>
           </div>
         </div>
       </div>

@@ -1105,5 +1105,11 @@
   "xtract_image_recolor_tol": "Tolerancja",
   "xtract_image_recolor_apply": "Zamień",
   "xtract_image_recolor_done_title": "Kolor zamieniony",
-  "xtract_image_recolor_err_title": "Zamiana nie powiodła się"
+  "xtract_image_recolor_err_title": "Zamiana nie powiodła się",
+  "xtract_image_rmbg_title": "Usuń tło (kolor)",
+  "xtract_image_rmbg_help": "Sprawia, że jednolite kolorystycznie tło staje się przezroczyste. Wybierz kolor tła i zwiększ tolerancję, aby objąć też zbliżone odcienie. Zapisywane jako PNG z przezroczystością.",
+  "xtract_image_rmbg_color": "Tło",
+  "xtract_image_rmbg_apply": "Usuń",
+  "xtract_image_rmbg_done_title": "Tło usunięte",
+  "xtract_image_rmbg_err_title": "Usuwanie nie powiodło się"
 }

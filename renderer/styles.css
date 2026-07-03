@@ -2344,6 +2344,32 @@ body[data-theme="light"] .short-input:focus {
 }
 .site-chip.searching { color: var(--warning); border-color: var(--warning); animation: pulse 1s infinite; }
 .site-chip.done      { color: var(--accent2); border-color: var(--accent2); }
+/* A finished unit that returned nothing: greyed, pushed to the end, inert. */
+.site-chip.empty     { color: var(--text-muted); border-color: var(--border2); opacity: 0.55; cursor: default; text-transform: none; letter-spacing: 0.5px; }
+/* Accordion for the empty (0-result) source chips: a full-width toggle below
+   the green chips, then a slide-down panel holding the grey chips. */
+.empty-sources-toggle {
+  flex-basis: 100%; width: 100%;
+  display: flex; align-items: center; gap: 6px;
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 12px; padding: 5px 0; margin-top: 4px;
+  font-family: var(--mono); letter-spacing: 0.5px; text-align: left;
+}
+.empty-sources-toggle:hover { color: var(--text); }
+.empty-sources-caret { display: inline-flex; transition: transform 0.2s; }
+.empty-sources-toggle.open .empty-sources-caret { transform: rotate(90deg); }
+.empty-sources-panel {
+  flex-basis: 100%; width: 100%;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-height: 0; overflow: hidden; opacity: 0;
+  transition: max-height 0.28s ease, opacity 0.22s ease, margin-top 0.28s ease;
+}
+.empty-sources-panel.open { max-height: 60vh; overflow-y: auto; opacity: 1; margin-top: 6px; }
+
+/* Post-search per-indexer chips double as table filters. */
+.site-chip-filter { cursor: pointer; text-transform: none; letter-spacing: 0.5px; }
+.site-chip-filter:hover  { border-color: var(--accent); color: var(--accent); }
+.site-chip-filter.active { color: #000; background: var(--accent); border-color: var(--accent); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 /* ─── RESULTS / HISTORY TABLE ─────────────────────────────────────────────── */
@@ -2748,6 +2774,37 @@ body[data-theme="light"] .results-table tbody tr:hover { background: rgba(0,0,0,
 }
 .td-dim     { color: var(--text-muted); }
 .td-actions { white-space: nowrap; }
+
+/* Torrent results: fixed layout so the Name column takes the REMAINING width
+   and its ellipsis is dynamic (widening the window reveals more of the name),
+   instead of the shared 340px cap. Other columns get explicit widths. */
+#torrent-results-wrap .results-table { table-layout: fixed; }
+#torrent-results-wrap .td-name { max-width: none; }
+#torrent-results-wrap .results-table th:nth-child(1),
+#torrent-results-wrap .results-table td:nth-child(1) { width: 42px; }
+#torrent-results-wrap .results-table th:nth-child(3),
+#torrent-results-wrap .results-table td:nth-child(3),
+#torrent-results-wrap .results-table th:nth-child(4),
+#torrent-results-wrap .results-table td:nth-child(4) { width: 78px; }
+#torrent-results-wrap .results-table th:nth-child(5),
+#torrent-results-wrap .results-table td:nth-child(5) { width: 116px; }
+#torrent-results-wrap .results-table th:nth-child(6),
+#torrent-results-wrap .results-table td:nth-child(6) { width: 160px; }
+#torrent-results-wrap .results-table th:nth-child(7),
+#torrent-results-wrap .results-table td:nth-child(7) { width: 200px; }
+#torrent-results-wrap .td-site { overflow: hidden; text-overflow: ellipsis; text-transform: none; }
+/* Icon-only action buttons: trim horizontal padding so all four fit. */
+#torrent-results-wrap .td-actions { padding-left: 8px; padding-right: 8px; }
+#torrent-results-wrap .td-actions .btn-save-row { padding: 5px 9px; }
+
+/* Sortable column headers + Lucide sort caret (shown on the active column,
+   flipped for ascending). */
+.th-sort { cursor: pointer; user-select: none; }
+.th-sort:hover { color: var(--accent); }
+.th-sort.sorted { color: var(--accent); }
+.th-caret { display: inline-flex; vertical-align: middle; margin-left: 3px; opacity: 0; transition: opacity 0.15s, transform 0.15s; }
+.th-sort.sorted .th-caret { opacity: 1; }
+.th-sort.sorted-asc .th-caret { transform: rotate(180deg); }
 
 /* Torrent action buttons */
 .btn-torrent, .btn-copy, .btn-queue, .btn-magnet {
@@ -3165,6 +3222,144 @@ body[data-theme="light"] .footer-donate { color: var(--text) !important; }
   outline: none;
 }
 .site-cfg-field input:focus { border-color: var(--accent); }
+.site-cfg-field-wide input { width: 100%; }
+/* Editable type selector (Torznab / JSON / RSS) on custom source cards. Sits
+   right after the name; margin-right:auto pushes the toggle + delete controls
+   to the far right so the header still reads name-left / controls-right. */
+.site-cfg-type-badge {  /* kept for any legacy render path */
+  margin-right: auto;
+  padding: 2px 7px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--bg1);
+  background: var(--accent);
+  border-radius: 0;
+}
+.site-type-select {
+  margin-right: auto;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 3px 22px 3px 8px;
+  border-radius: 0;
+  outline: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23c8f542' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+}
+.site-type-select:hover  { border-color: var(--text-muted); }
+.site-type-select:focus  { border-color: var(--accent); }
+.site-cfg-name { margin-right: 8px; }
+
+/* Compact (display-only) source card: status dot + name, type badge under the
+   title, read-only URL + max stacked. All editing happens in the popup. */
+.site-cfg-card-compact .site-cfg-card-header { align-items: center; }
+.site-cfg-dot {
+  flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%;
+  margin-right: 8px;
+}
+.site-cfg-dot.on  { background: #35d07f; box-shadow: 0 0 4px rgba(53, 208, 127, 0.6); }
+.site-cfg-dot.off { background: #e03f4e; }
+.site-cfg-card-compact .site-cfg-name { flex: 1 1 auto; margin-right: 8px; }
+.site-cfg-card-compact .toggle { margin-left: 0; }
+/* Badges row under the title: type badge (flux bg / black text) + MAX badge
+   (black bg / white text). */
+.site-cfg-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.site-cfg-type-under {
+  display: inline-block; color: #000; background: var(--accent);
+  padding: 2px 7px; font-family: var(--mono); font-size: 10px; letter-spacing: 1px;
+}
+.site-cfg-max-badge {
+  display: inline-block; color: #fff; background: #000;
+  padding: 2px 7px; font-family: var(--mono); font-size: 10px; letter-spacing: 1px;
+}
+.site-cfg-compact-info { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.site-cfg-ro-block { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.site-cfg-ro-label {
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-size: 10px;
+}
+.site-cfg-ro-val {
+  min-width: 0; color: var(--text); font-family: var(--mono); font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Smaller action icons on the compact card. */
+.site-cfg-icon-sm { width: 26px; height: 26px; padding: 0; }
+.site-cfg-icon-sm svg { width: 14px; height: 14px; }
+
+/* Restyle the source-type <select> in the Add Source modal — kill the native
+   dropdown chrome and draw a FLUX chevron, per the no-OS-default-controls rule. */
+select.search-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c8f542' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+textarea.search-input { resize: vertical; min-height: 72px; line-height: 1.45; }
+
+/* Torznab indexer picker row: [Load indexers] button + revealed <select>. */
+.indexer-picker-row { display: flex; gap: 8px; align-items: center; }
+.indexer-picker-row .search-input { flex: 1; }
+
+/* Source popup: 2-column form. Wide fields (title, status text, indexer picker,
+   mirrors/mapping textareas, hint, actions) span both columns. */
+#add-source-modal .modal-box {
+  position: relative;
+  width: 580px; max-width: 94vw;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; align-content: start;
+}
+#add-source-modal .modal-box > .modal-title,
+#add-source-modal .modal-box > .modal-hint,
+#add-source-modal .modal-box > .modal-actions,
+#add-source-modal #new-source-detect-group,
+#add-source-modal #new-source-indexer-group,
+#add-source-modal #new-source-mirrors-group,
+#add-source-modal #new-source-mapping-group { grid-column: 1 / -1; }
+#add-source-modal .field-group { margin: 0; }
+/* Status switch pinned to the top-right corner, out of the grid flow. */
+#add-source-modal #new-source-status-group {
+  position: absolute; top: 16px; right: 18px; z-index: 2;
+  display: flex; align-items: center; gap: 8px; margin: 0;
+}
+#add-source-modal #new-source-status-group .field-label { margin: 0; }
+
+/* Jackett/Prowlarr detection status line + guided-install modal. */
+.source-detect-status { font-size: 12px; font-family: var(--mono); line-height: 1.4; }
+.source-detect-status.checking { color: var(--text-muted); }
+/* Inline mini spinner shown while probing for a local Jackett/Prowlarr. */
+.mini-spinner {
+  display: inline-block; width: 11px; height: 11px; vertical-align: -1px;
+  margin-right: 6px; border: 2px solid var(--border2); border-top-color: var(--accent);
+  border-radius: 50%; animation: mini-spin 0.7s linear infinite;
+}
+@keyframes mini-spin { to { transform: rotate(360deg); } }
+.source-detect-status.ok       { color: var(--accent); }
+.source-detect-status.err      { color: var(--warning); }
+.jackett-install-platform {
+  font-family: var(--mono); font-size: 12px; color: var(--text-muted);
+  margin: 6px 0 10px; letter-spacing: 1px;
+}
+.jackett-install-steps { margin: 0 0 4px; padding-left: 20px; font-size: 13px; line-height: 1.6; color: var(--text); }
+.jackett-install-steps li { margin-bottom: 4px; }
+
+/* Small muted helper line under the Add Source fields. */
+.modal-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
 .site-cfg-note {
   font-size: 11px;
   color: var(--warning);

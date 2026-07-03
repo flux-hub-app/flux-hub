@@ -1105,5 +1105,11 @@
   "xtract_image_recolor_tol": "許容範囲",
   "xtract_image_recolor_apply": "置換",
   "xtract_image_recolor_done_title": "色を置換しました",
-  "xtract_image_recolor_err_title": "置換に失敗しました"
+  "xtract_image_recolor_err_title": "置換に失敗しました",
+  "xtract_image_rmbg_title": "背景を削除（色）",
+  "xtract_image_rmbg_help": "単色の背景を透明にします。背景色を選び、許容値を上げると近い色合いも対象になります。透過 PNG として保存されます。",
+  "xtract_image_rmbg_color": "背景",
+  "xtract_image_rmbg_apply": "削除",
+  "xtract_image_rmbg_done_title": "背景を削除しました",
+  "xtract_image_rmbg_err_title": "削除に失敗しました"
 }

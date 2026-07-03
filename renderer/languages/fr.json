@@ -1105,5 +1105,11 @@
   "xtract_image_recolor_tol": "Tolérance",
   "xtract_image_recolor_apply": "Remplacer",
   "xtract_image_recolor_done_title": "Couleur remplacée",
-  "xtract_image_recolor_err_title": "Échec du remplacement"
+  "xtract_image_recolor_err_title": "Échec du remplacement",
+  "xtract_image_rmbg_title": "Supprimer l'arrière-plan (couleur)",
+  "xtract_image_rmbg_help": "Rend transparent un arrière-plan de couleur unie. Choisissez la couleur de l'arrière-plan et augmentez la tolérance pour capturer aussi les nuances proches. Enregistré en PNG avec transparence.",
+  "xtract_image_rmbg_color": "Arrière-plan",
+  "xtract_image_rmbg_apply": "Supprimer",
+  "xtract_image_rmbg_done_title": "Arrière-plan supprimé",
+  "xtract_image_rmbg_err_title": "Échec de la suppression"
 }

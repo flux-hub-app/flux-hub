@@ -1105,5 +1105,11 @@
   "xtract_image_recolor_tol": "Toleranz",
   "xtract_image_recolor_apply": "Ersetzen",
   "xtract_image_recolor_done_title": "Farbe ersetzt",
-  "xtract_image_recolor_err_title": "Ersetzen fehlgeschlagen"
+  "xtract_image_recolor_err_title": "Ersetzen fehlgeschlagen",
+  "xtract_image_rmbg_title": "Hintergrund entfernen (Farbe)",
+  "xtract_image_rmbg_help": "Macht einen einfarbigen Hintergrund transparent. Wähle die Hintergrundfarbe und erhöhe die Toleranz, um auch ähnliche Farbtöne zu erfassen. Wird als PNG mit Transparenz gespeichert.",
+  "xtract_image_rmbg_color": "Hintergrund",
+  "xtract_image_rmbg_apply": "Entfernen",
+  "xtract_image_rmbg_done_title": "Hintergrund entfernt",
+  "xtract_image_rmbg_err_title": "Entfernen fehlgeschlagen"
 }

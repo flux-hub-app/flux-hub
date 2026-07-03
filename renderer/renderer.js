@@ -402,8 +402,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   setMediaButtonsEnabled(false);
   initLogPlaceholders();
 
+  // Pre-warm the Torznab service detection at startup so the Add Source modal is
+  // already aligned (no cold-probe wait when the user first picks Torznab).
+  probeTorznabService().catch(() => {});
+
   // IPC events
-  window.api.torrent.onSiteProgress(({ site }) => markSiteDone(site));
+  window.api.torrent.onSearchPlan(({ labels }) => buildSearchChips(labels));
+  window.api.torrent.onSiteProgress(({ site, count, ok }) => markChipProgress(site, count, ok));
   window.api.media.onProgress(({ line, error }) => handleMediaProgress(line, error));
   // ffmpeg writes ALL its output to stderr (Opening/Input/Duration/Metadata…),
   // so a stderr line is NOT an error — route progress to the log panel without
@@ -2237,6 +2242,8 @@ function ensureImageEditor(filePath) {
     document.getElementById('img-crop-apply-btn').disabled = false;
     const _recolorBtn = document.getElementById('img-recolor-apply');
     if (_recolorBtn) _recolorBtn.disabled = false;
+    const _rmbgBtn = document.getElementById('img-rmbg-apply');
+    if (_rmbgBtn) _rmbgBtn.disabled = false;
     refreshImageResizeApplyEnabled();
     refreshSplitButtons();
     // Mount the Annotate (fabric) canvas with this image as background. Lazy
@@ -2705,6 +2712,13 @@ function bindImageFxControls() {
     if (v) v.textContent = recolorTol.value + '%';
   });
   document.getElementById('img-recolor-apply')?.addEventListener('click', doImageColorReplace);
+  // Remove-background (colour) controls.
+  const rmbgTol = document.getElementById('img-rmbg-tol');
+  rmbgTol?.addEventListener('input', () => {
+    const v = document.getElementById('img-rmbg-tol-v');
+    if (v) v.textContent = rmbgTol.value + '%';
+  });
+  document.getElementById('img-rmbg-apply')?.addEventListener('click', doImageRemoveBg);
 }
 
 async function doImageColorReplace() {
@@ -2723,6 +2737,27 @@ async function doImageColorReplace() {
   } else {
     appendLog('xtract-log', `✗ ${r.error}`, 'error');
     showToast({ title: t('xtract_image_recolor_err_title') || 'Replace failed', body: r.error, kind: 'err', ttl: 6000 });
+  }
+}
+
+// XTRACT > Image > Remove background (colour). Quick chroma-key — makes a
+// solid-colour background transparent and saves a PNG. For arbitrary photo
+// backgrounds, AI segmentation is on the roadmap.
+async function doImageRemoveBg() {
+  if (!xtractInput) return;
+  const color = document.getElementById('img-rmbg-color')?.value || '#ffffff';
+  const tolerance = parseInt(document.getElementById('img-rmbg-tol')?.value, 10) || 0;
+  const btn = document.getElementById('img-rmbg-apply');
+  btn.classList.add('btn-loading'); btn.disabled = true;
+  appendLog('xtract-log', `Removing ${color} background (tol ${tolerance}%) from ${xtractInput.split(/[\\/]/).pop()}…`, 'info');
+  const r = await window.api.images.removeBgColor({ input: xtractInput, color, tolerance });
+  btn.classList.remove('btn-loading'); btn.disabled = false;
+  if (r.ok) {
+    appendLog('xtract-log', `✓ Saved: ${r.path}`, 'ok');
+    showToast({ title: t('xtract_image_rmbg_done_title') || 'Background removed', body: r.path, kind: 'ok', ttl: 6000, actions: fileToastActions(r.path) });
+  } else {
+    appendLog('xtract-log', `✗ ${r.error}`, 'error');
+    showToast({ title: t('xtract_image_rmbg_err_title') || 'Removal failed', body: r.error, kind: 'err', ttl: 6000 });
   }
 }
 
@@ -4255,6 +4290,48 @@ function bindTorrent() {
   const qInput = document.getElementById('torrent-query');
   document.getElementById('torrent-search-btn').addEventListener('click', doTorrentSearch);
   qInput.addEventListener('keydown', e => { if (e.key === 'Enter') doTorrentSearch(); });
+  // Sortable result columns.
+  document.querySelectorAll('#torrent-results-wrap .results-table th.th-sort').forEach(th =>
+    th.addEventListener('click', () => applyTorrentSort(th.dataset.sort)));
+}
+
+// Parse a formatted size ("1.50 GB", "700 MiB", "N/A") to bytes for sorting.
+function sizeToBytes(s) {
+  const m = String(s || '').replace(/,/g, '').match(/([\d.]+)\s*([KMGT])?i?B/i);
+  if (!m) return -1;
+  const mult = { '': 1, K: 1024, M: 1048576, G: 1073741824, T: 1099511627776 }[(m[2] || '').toUpperCase()] || 1;
+  return parseFloat(m[1]) * mult;
+}
+let _torrentSort = { col: 'seeds', dir: 'desc' };
+function torrentSortValue(r, col) {
+  if (col === 'seeds')   return r.seeds || 0;
+  if (col === 'leeches') return r.leeches || 0;
+  if (col === 'size')    return sizeToBytes(r.size);
+  return String(r[col === 'site' ? 'site' : 'name'] || '').toLowerCase();  // name / site
+}
+// Sort the GLOBAL torrentResults in place (keeps row indices valid for the
+// save/send actions) and re-render. Same column toggles asc/desc.
+function applyTorrentSort(col) {
+  if (!col) return;
+  if (_torrentSort.col === col) _torrentSort.dir = _torrentSort.dir === 'asc' ? 'desc' : 'asc';
+  else _torrentSort = { col, dir: (col === 'name' || col === 'site') ? 'asc' : 'desc' };
+  const numeric = col === 'seeds' || col === 'leeches' || col === 'size';
+  const sign = _torrentSort.dir === 'asc' ? 1 : -1;
+  torrentResults.sort((a, b) => {
+    const va = torrentSortValue(a, col), vb = torrentSortValue(b, col);
+    return sign * (numeric ? (va - vb) : String(va).localeCompare(String(vb)));
+  });
+  renderTorrentResults(torrentResults);
+  // Sorting re-renders every row visible, so drop any active chip filter.
+  document.querySelectorAll('#site-status-row .site-chip-filter.active').forEach(x => x.classList.remove('active'));
+  updateSortHeaders();
+}
+function updateSortHeaders() {
+  document.querySelectorAll('#torrent-results-wrap .results-table th.th-sort').forEach(th => {
+    const on = th.dataset.sort === _torrentSort.col;
+    th.classList.toggle('sorted', on);
+    th.classList.toggle('sorted-asc', on && _torrentSort.dir === 'asc');
+  });
 }
 
 async function doTorrentSearch() {
@@ -4267,14 +4344,20 @@ async function doTorrentSearch() {
 
   const activeSites = Object.keys(config.sites).filter(s => config.sites[s].enabled);
   if (!activeSites.length) { appendLog('torrent-log', t('torrent_no_sources'), 'error'); return; }
-  buildSiteChips(activeSites);
+  // Chips are drawn from the search PLAN emitted by main (one per unit: source
+  // or per Torznab indexer). Show a placeholder until it arrives.
+  const chipRow = document.getElementById('site-status-row');
+  chipRow.innerHTML = `<span class="site-chip searching">${esc(t('torrent_preparing') || 'preparing…')}</span>`;
   document.getElementById('torrent-search-btn').disabled = true;
 
   try {
     const { results, errors } = await window.api.torrent.search(query, config);
     errors.forEach(e => appendLog('torrent-log', e, 'error'));
     torrentResults = results;
+    _torrentSort = { col: 'seeds', dir: 'desc' };   // main returns seeds-desc
     renderTorrentResults(results);
+    updateSortHeaders();
+    finalizeChips();
     appendLog('torrent-log', t('torrent_found', { n: results.length }), results.length > 0 ? 'ok' : 'log');
   } catch(e) {
     appendLog('torrent-log', `✗ ${e.message}`, 'error');
@@ -4283,19 +4366,71 @@ async function doTorrentSearch() {
   }
 }
 
-function buildSiteChips(sites) {
+// Draw a chip per search unit (from the plan), all "searching". Uses a label→
+// element map so labels with spaces/pipes ("test | 1337x") work as keys.
+let _chipByLabel = new Map();
+function buildSearchChips(labels) {
   const row = document.getElementById('site-status-row');
   row.innerHTML = '';
-  sites.forEach(site => {
+  _chipByLabel = new Map();
+  labels.forEach(label => {
     const c = document.createElement('span');
-    c.className = 'site-chip searching'; c.id = `chip-${site}`; c.textContent = site;
+    c.className = 'site-chip searching';
+    c.dataset.label = label;
+    c.textContent = label;
     row.appendChild(c);
+    _chipByLabel.set(label, c);
   });
 }
-
-function markSiteDone(site) {
-  const c = document.getElementById(`chip-${site}`);
-  if (c) c.classList.replace('searching', 'done');
+// A unit finished: green + count when it returned hits, grey when it returned
+// nothing (or errored). Count is appended to the chip so it matches the table.
+function markChipProgress(label, count, ok) {
+  const c = _chipByLabel.get(label);
+  if (!c) return;
+  c.classList.remove('searching');
+  c.textContent = `${label} (${count || 0})`;
+  if (count > 0) c.classList.add('done');
+  else c.classList.add('empty');
+}
+// After the search: keep the green (has-results) chips inline and wire them as
+// table filters. The empty (0-result) chips are tucked into a collapsed
+// accordion below, revealed by a "show sources with no results" toggle.
+function finalizeChips() {
+  const row = document.getElementById('site-status-row');
+  const chips = [...row.querySelectorAll('.site-chip')];
+  const green = chips.filter(c => c.classList.contains('done'));
+  const empty = chips.filter(c => c.classList.contains('empty'));
+  row.innerHTML = '';
+  green.forEach(c => { row.appendChild(c); wireChipFilter(c, row); });
+  if (!empty.length) return;
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'empty-sources-toggle';
+  toggle.innerHTML =
+    `<span class="empty-sources-caret" data-lucide-icon="chevron-right" data-lucide-size="16"></span>` +
+    `<span>${esc(t('torrent_show_empty_sources') || 'show sources with no results')} (${empty.length})</span>`;
+  const panel = document.createElement('div');
+  panel.className = 'empty-sources-panel';
+  empty.forEach(c => panel.appendChild(c));
+  toggle.addEventListener('click', () => {
+    const open = toggle.classList.toggle('open');
+    panel.classList.toggle('open', open);
+  });
+  row.appendChild(toggle);
+  row.appendChild(panel);
+  applyLucideIcons(toggle);
+}
+// Wire a green chip as a table filter: click hides non-matching rows (indices
+// stay valid for save/send); clicking the active chip clears the filter.
+function wireChipFilter(c, row) {
+  c.classList.add('site-chip-filter');
+  c.addEventListener('click', () => {
+    const wasActive = c.classList.contains('active');
+    row.querySelectorAll('.site-chip-filter').forEach(x => x.classList.remove('active'));
+    const rows = document.querySelectorAll('#torrent-tbody tr');
+    if (wasActive) rows.forEach(tr => { tr.style.display = ''; });
+    else { c.classList.add('active'); rows.forEach(tr => { tr.style.display = tr.dataset.site === c.dataset.label ? '' : 'none'; }); }
+  });
 }
 
 // Jump to Settings → Integrations → "Send torrents to client" and nudge the
@@ -4323,15 +4458,17 @@ function renderTorrentResults(results) {
   document.getElementById('results-count').textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
   results.forEach((r, i) => {
     const sc  = r.seeds > 50 ? 'seeds-high' : r.seeds > 10 ? 'seeds-medium' : 'seeds-low';
-    const nm  = r.name.length > 58 ? r.name.substring(0,55)+'…' : r.name;
     const tr  = document.createElement('tr');
+    tr.dataset.site = r.site;   // used by the per-indexer chip filter
+    // Full name in the DOM — CSS ellipsis trims it to the available width, so
+    // widening the window reveals more (dynamic, not a fixed character cut).
     tr.innerHTML = `
       <td class="td-num">${i+1}</td>
-      <td class="td-name"><span class="td-name-inner" title="${esc(r.name)}">${esc(nm)}</span></td>
+      <td class="td-name"><span class="td-name-inner" title="${esc(r.name)}">${esc(r.name)}</span></td>
       <td class="${sc}">${r.seeds}</td>
       <td class="td-dim">${r.leeches}</td>
       <td class="td-dim">${r.size}</td>
-      <td class="td-site">${r.site}</td>
+      <td class="td-site">${esc(r.site)}</td>
       <td class="td-actions">
         ${(r.magnet||r.url) ? `<button class="btn-save-row${config.sendto_enabled ? '' : ' is-inactive'}" data-send="${i}" data-lucide-icon="send" title="${esc(t('queue_send_client') || 'Send to client')}"></button>` : ''}
         ${r.url    ? `<button class="btn-save-row btn-torrent" data-idx="${i}" data-mode="torrent" data-lucide-icon="save" title=".torrent"></button>` : ''}
@@ -11208,41 +11345,40 @@ function renderSettings() {
   Object.keys(config.sites).forEach(site => {
     const s = config.sites[site];
     const card = document.createElement('div');
-    card.className = `site-cfg-card${s.enabled ? '' : ' disabled'}`;
+    card.className = `site-cfg-card site-cfg-card-compact${s.enabled ? '' : ' disabled'}`;
     card.dataset.site = site;
-    const noteHtml = s.note ? `<div class="site-cfg-note"><span data-lucide-icon="alert-triangle" data-lucide-size="14"></span> ${esc(s.note)}</div>` : '';
+    // The card is now display-only: type + URL base + max results. All editing
+    // (URL, API key, mapping, mirrors, max) happens in the source popup via the
+    // Edit button, keeping the card compact.
+    // Type shown as its real category: custom → its type; built-in → API/RSS.
+    const typeLabel = String(s.type || BUILTIN_DISPLAY_TYPE[site] || site).toUpperCase();
+    const maxLabel  = (s.max_results ?? '') === '' ? (t('settings_source_max_global') || 'global') : String(s.max_results);
     card.innerHTML = `
       <div class="site-cfg-card-header">
+        <span class="site-cfg-dot ${s.enabled ? 'on' : 'off'}"></span>
         <span class="site-cfg-name">${esc(site)}</span>
-        <label class="toggle"><input type="checkbox" class="site-enabled-toggle" data-site="${esc(site)}" ${s.enabled?'checked':''}/>
-          <span class="toggle-track"></span></label>
-        <button class="btn-icon btn-icon-danger site-cfg-delete" type="button" data-site="${esc(site)}" data-lucide-icon="trash" title="${esc(t('settings_delete_source') || 'Delete source')}"></button>
+        <button class="btn-icon site-cfg-icon-sm site-cfg-edit" type="button" data-site="${esc(site)}" data-lucide-icon="pencil" title="${esc(t('settings_edit_source') || 'Edit source')}"></button>
+        <button class="btn-icon site-cfg-icon-sm btn-icon-danger site-cfg-delete" type="button" data-site="${esc(site)}" data-lucide-icon="trash" title="${esc(t('settings_delete_source') || 'Delete source')}"></button>
       </div>
-      <div class="site-cfg-fields">
-        <div class="site-cfg-field"><label>${esc(t('settings_api'))}</label>
-          <input type="text" class="site-api-input" data-site="${esc(site)}" value="${esc(s.api || '')}" /></div>
-        <div class="site-cfg-field"><label>${esc(t('settings_max_site'))}</label>
-          <input type="number" class="site-max-input" data-site="${esc(site)}" value="${s.max_results ?? ''}" min="1" max="50" style="width:80px"/></div>
-        ${noteHtml}
+      <div class="site-cfg-badges">
+        <span class="site-cfg-type-badge site-cfg-type-under">${esc(typeLabel)}</span>
+        <span class="site-cfg-max-badge">MAX: ${esc(maxLabel)}</span>
+      </div>
+      <div class="site-cfg-compact-info">
+        <div class="site-cfg-ro-block"><span class="site-cfg-ro-label">${esc(t('settings_api'))}</span><span class="site-cfg-ro-val" title="${esc(s.api || '')}">${esc(s.api || '—')}</span></div>
       </div>`;
-    card.querySelector('.site-enabled-toggle').addEventListener('change', async function() {
-      card.classList.toggle('disabled', !this.checked);
-      // Auto-persist the enable/disable flip so a toggle change takes
-      // effect on the NEXT search without the user having to scroll back
-      // up to the Save button. (Bug: previously a user would untick YTS,
-      // run a search, and still see YTS results because config wasn't
-      // re-saved until Save was clicked.)
-      if (config.sites[site]) {
-        config.sites[site].enabled = this.checked;
-        try { await window.api.config.save(config); } catch {}
-      }
-    });
+    card.querySelector('.site-cfg-edit').addEventListener('click', () => openSourceEditor(site));
     card.querySelector('.site-cfg-delete').addEventListener('click', async () => {
       if (!(await showConfirm({
         title: t('settings_delete_source') || 'Delete source',
         body:  t('settings_delete_source_confirm', { name: site }) || `Delete source "${site}"? This cannot be undone.`,
         danger: true
       }))) return;
+      // Built-in sources (YTS/Nyaa/TPB) are re-seeded from DEFAULT_CONFIG on each
+      // launch, so record the deletion to keep it from reappearing.
+      if (BUILTIN_SOURCES.includes(site)) {
+        config.deleted_default_sites = Array.from(new Set([...(config.deleted_default_sites || []), site]));
+      }
       delete config.sites[site];
       window.api.config.save(config);
       renderSitesConfig();
@@ -11250,6 +11386,24 @@ function renderSettings() {
     list.appendChild(card);
   });
   applyLucideIcons(list);
+}
+// Names of the built-in sources seeded from DEFAULT_CONFIG.sites in main.js.
+const BUILTIN_SOURCES = ['YTS', 'Nyaa', 'TPB'];
+// Built-ins are dispatched by name in main.js, but their raw names aren't a
+// meaningful "type" to show the user — surface their real category instead.
+const BUILTIN_DISPLAY_TYPE = { YTS: 'API', Nyaa: 'RSS', TPB: 'API' };
+// Set the type <select> value, injecting a one-off option (value 'builtin', a
+// display label) when editing a built-in so it shows a sensible type rather
+// than the empty placeholder. Injected options are cleared on each call.
+function setSourceTypeOptions(value, label) {
+  const sel = document.getElementById('new-source-type');
+  sel.querySelectorAll('option[data-builtin]').forEach(o => o.remove());
+  if (value && !['torznab', 'json', 'rss'].includes(value)) {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = label || value.toUpperCase(); opt.dataset.builtin = '1';
+    sel.appendChild(opt);
+  }
+  sel.value = value || '';
 }
 // Re-render the sources list after a delete. Cheapest path is to re-run
 // renderSettings (which re-populates everything from config).
@@ -11791,20 +11945,199 @@ function readSettingsFromUI() {
   const themeRadio = document.querySelector('input[name="cfg-theme"]:checked');
   if (themeRadio)  { config.theme = themeRadio.value; applyTheme(themeRadio.value); }
 
-  document.querySelectorAll('.site-cfg-card').forEach(card => {
-    const site = card.dataset.site;
-    if (!config.sites[site]) return;
-    config.sites[site].enabled     = card.querySelector('.site-enabled-toggle').checked;
-    config.sites[site].api         = card.querySelector('.site-api-input').value.trim();
-    const mx                       = card.querySelector('.site-max-input').value.trim();
-    config.sites[site].max_results = mx === '' ? null : parseInt(mx);
-  });
+  // Source cards are display-only — their enable/disable toggle auto-persists,
+  // and all other fields are edited (and saved) via the source popup. Nothing
+  // to read back here.
 
   // Schedule
   schedule.enabled       = document.getElementById('cfg-schedule-enabled').checked;
   schedule.window_start  = document.getElementById('cfg-window-start').value || '02:00';
   schedule.window_end    = document.getElementById('cfg-window-end').value   || '06:00';
   schedule.rss_poll_min  = parseInt(document.getElementById('cfg-rss-poll').value) || 60;
+}
+
+// Torznab service detection cache, pre-warmed at startup (see DOMContentLoaded)
+// so the Add Source modal can show status instantly instead of making the user
+// wait on a cold probe. Refreshed live whenever the user picks the Torznab type.
+let _torznabDetect = null;
+async function probeTorznabService() {
+  let res;
+  try { res = await window.api.torrent.detect(); } catch { res = { ok: false }; }
+  _torznabDetect = res;
+  return res;
+}
+
+// ─── SOURCE POPUP (create / edit) ────────────────────────────────────────────
+// The Add Source modal doubles as an editor: openSourceCreator() blanks it,
+// openSourceEditor(name) pre-fills it from an existing source. Field visibility
+// is driven by the chosen type (+ whether a Torznab service is detected, in
+// create mode). All source edits save immediately — the cards are display-only.
+let _sourceEditName = null;   // null = create mode; else the source being edited
+
+function updateSourceFieldVisibility(type, detected, editMode) {
+  const show = (id, v) => document.getElementById(id).classList.toggle('hidden', !v);
+  const isTz  = type === 'torznab';
+  const isGen = type === 'json' || type === 'rss';
+  // Built-in sources (YTS/Nyaa/TPB) use the 'builtin' display sentinel and show
+  // only the basic URL / max / mirrors fields — no API key, indexer or mapping.
+  const builtinEdit = type === 'builtin' || (editMode && !type && !!_sourceEditName);
+  // In edit mode Torznab fields show immediately; in create mode they wait for
+  // detection to confirm a service is present.
+  const tzReady = isTz && (editMode || detected);
+  show('new-source-detect-group',  isTz && !editMode);
+  show('new-source-api-group',     isGen || tzReady || builtinEdit);
+  show('new-source-apikey-group',  tzReady);
+  show('new-source-indexer-group', tzReady);
+  show('new-source-max-group',     isGen || tzReady || builtinEdit);
+  // Mirrors make sense for URL-based sources (JSON/RSS/built-in API), NOT for
+  // Torznab (its failover is handled Jackett-side).
+  show('new-source-mirrors-group', isGen || builtinEdit);
+  show('new-source-mapping-group', isGen);
+  const apiInput = document.getElementById('new-source-api');
+  const hint     = document.getElementById('new-source-hint');
+  if (isTz) {
+    apiInput.placeholder = 'http://localhost:9117/api/v2.0/indexers/all/results/torznab';
+    hint.textContent = t('settings_source_hint_torznab') || 'Point this at your Jackett/Prowlarr Torznab endpoint.';
+  } else if (isGen) {
+    apiInput.placeholder = 'https://example.com/search?q={query}&limit={limit}';
+    hint.textContent = t('settings_source_hint_generic') || 'Use {query} (and optionally {limit}) as placeholders in the URL.';
+  } else if (builtinEdit) {
+    hint.textContent = '';
+  } else {
+    apiInput.placeholder = 'https://...';
+    hint.textContent = t('settings_source_hint_choose') || 'Pick a source type to continue.';
+  }
+}
+function syncSourceType() {
+  updateSourceFieldVisibility(document.getElementById('new-source-type').value, false, !!_sourceEditName);
+}
+function fillFromDetect(res) {
+  const apiEl = document.getElementById('new-source-api');
+  const keyEl = document.getElementById('new-source-apikey');
+  if (!apiEl.value.trim() && res.url)    apiEl.value = res.url;
+  if (!keyEl.value.trim() && res.apikey) keyEl.value = res.apikey;
+}
+function detectedText(res) {
+  return t('jackett_detected', { flavor: res.flavor }) || `${res.flavor} detected on this PC.`;
+}
+// Probe for a local Jackett/Prowlarr. While probing, the status line explains
+// the spinner. Found → reveal the config fields (auto-filled). Not found → keep
+// them hidden and (with autoPopup) open the guided install popup.
+async function refreshTorznabDetect(autoPopup) {
+  const statusEl = document.getElementById('new-source-detect-status');
+  const spinner  = '<span class="mini-spinner"></span>';
+  document.getElementById('new-source-detect-group').classList.remove('hidden');
+  if (_torznabDetect && _torznabDetect.ok) {
+    statusEl.className = 'source-detect-status ok';
+    statusEl.innerHTML = `${esc(detectedText(_torznabDetect))} ${spinner}`;
+    fillFromDetect(_torznabDetect);
+    updateSourceFieldVisibility('torznab', true, false);
+  } else {
+    updateSourceFieldVisibility('torznab', false, false);
+    statusEl.className = 'source-detect-status checking';
+    statusEl.innerHTML = `${spinner}${esc(t('jackett_checking') || 'Checking whether the service is running…')}`;
+  }
+  const res = await probeTorznabService();
+  if (res && res.ok) {
+    statusEl.className   = 'source-detect-status ok';
+    statusEl.textContent = detectedText(res);
+    fillFromDetect(res);
+    updateSourceFieldVisibility('torznab', true, false);
+  } else {
+    statusEl.className   = 'source-detect-status err';
+    statusEl.textContent = t('jackett_not_detected') || 'No indexer service found — install one to continue.';
+    updateSourceFieldVisibility('torznab', false, false);
+    if (autoPopup) openJackettInstall(res);
+  }
+}
+// We deliberately open the OFFICIAL Jackett GitHub page in the user's browser
+// rather than downloading/launching the binary ourselves (see TOS §2/§3).
+function jackettDownloadInfo(platform) {
+  const label = platform === 'win32' ? 'Windows' : platform === 'darwin' ? 'macOS' : 'Linux';
+  return { label, url: 'https://github.com/Jackett/Jackett/releases/latest' };
+}
+function openJackettInstall(res) {
+  const info = jackettDownloadInfo((res && res.platform) || 'win32');
+  document.getElementById('jackett-install-platform').textContent =
+    t('jackett_platform', { platform: info.label }) || `Detected platform: ${info.label}`;
+  document.getElementById('jackett-install-download').dataset.url = info.url;
+  document.getElementById('jackett-install-modal').classList.remove('hidden');
+}
+function resetSourceIndexerAndStatus() {
+  const ix = document.getElementById('new-source-indexer'); ix.innerHTML = ''; ix.classList.add('hidden');
+  const st = document.getElementById('new-source-detect-status'); st.innerHTML = ''; st.className = 'source-detect-status';
+}
+function openSourceCreator() {
+  _sourceEditName = null;
+  document.getElementById('add-source-title').textContent = t('settings_add_source') || 'Add Source';
+  document.getElementById('add-source-confirm').textContent = t('rss_confirm') || 'Add';
+  const nameEl = document.getElementById('new-source-name');
+  nameEl.value = ''; nameEl.readOnly = false;
+  setSourceTypeOptions('');
+  document.getElementById('new-source-enabled').checked = true;
+  document.getElementById('new-source-api').value = '';
+  document.getElementById('new-source-apikey').value = '';
+  document.getElementById('new-source-max').value = '';
+  document.getElementById('new-source-mirrors').value = '';
+  document.getElementById('new-source-mapping').value = '';
+  resetSourceIndexerAndStatus();
+  syncSourceType();
+  document.getElementById('add-source-modal').classList.remove('hidden');
+}
+function openSourceEditor(name) {
+  const s = config.sites[name];
+  if (!s) return;
+  _sourceEditName = name;
+  document.getElementById('add-source-title').textContent = t('settings_edit_source') || 'Edit Source';
+  document.getElementById('add-source-confirm').textContent = t('settings_source_update') || 'Update';
+  const nameEl = document.getElementById('new-source-name');
+  nameEl.value = name; nameEl.readOnly = true;          // name is the key — not renamable
+  const isBuiltin = BUILTIN_SOURCES.includes(name);
+  setSourceTypeOptions(s.type || (isBuiltin ? 'builtin' : ''), isBuiltin ? BUILTIN_DISPLAY_TYPE[name] : null);
+  document.getElementById('new-source-enabled').checked = s.enabled !== false;
+  document.getElementById('new-source-api').value = s.api || '';
+  document.getElementById('new-source-apikey').value = s.apikey || '';
+  document.getElementById('new-source-max').value = (s.max_results ?? '') === '' ? '' : String(s.max_results);
+  document.getElementById('new-source-mirrors').value = Array.isArray(s.mirrors) ? s.mirrors.join('\n') : '';
+  document.getElementById('new-source-mapping').value = s.mapping ? JSON.stringify(s.mapping) : '';
+  resetSourceIndexerAndStatus();
+  syncSourceType();
+  document.getElementById('add-source-modal').classList.remove('hidden');
+}
+// Build the source object from the popup fields and persist it (create or edit).
+function saveSource() {
+  const editing = !!_sourceEditName;
+  const name = editing ? _sourceEditName : document.getElementById('new-source-name').value.trim();
+  const type = document.getElementById('new-source-type').value;
+  const api  = document.getElementById('new-source-api').value.trim();
+  if (!name) return;
+  const prev = config.sites[name] || {};
+  const site = { ...prev, enabled: document.getElementById('new-source-enabled').checked, api };
+  // 'builtin' is a display-only sentinel — built-ins stay name-based (no type).
+  if (type && type !== 'builtin') site.type = type; else delete site.type;
+  const mx = document.getElementById('new-source-max').value.trim();
+  site.max_results = mx === '' ? null : parseInt(mx);
+  const mirText = document.getElementById('new-source-mirrors').value.trim();
+  const mirrors = mirText ? mirText.split(/\r?\n/).map(x => x.trim()).filter(Boolean) : [];
+  if (mirrors.length) site.mirrors = mirrors; else delete site.mirrors;
+  if (type === 'torznab') {
+    const key = document.getElementById('new-source-apikey').value.trim();
+    if (key) site.apikey = key; else delete site.apikey;
+    delete site.mapping;
+  } else if (type === 'json' || type === 'rss') {
+    const raw = document.getElementById('new-source-mapping').value.trim();
+    if (raw) { try { const m = JSON.parse(raw); if (m && typeof m === 'object') site.mapping = m; } catch { showToast({ title: t('settings_add_source') || 'Source', body: t('settings_source_mapping_bad') || 'Field mapping is not valid JSON — ignored.', kind: 'warn', ttl: 5000 }); } }
+    else delete site.mapping;
+    delete site.apikey;
+  }
+  // Re-adding a name previously deleted from the defaults → un-delete it.
+  if (Array.isArray(config.deleted_default_sites))
+    config.deleted_default_sites = config.deleted_default_sites.filter(n => n !== name);
+  config.sites[name] = site;
+  window.api.config.save(config);
+  renderSitesConfig();
+  document.getElementById('add-source-modal').classList.add('hidden');
+  _sourceEditName = null;
 }
 
 function bindSettings() {
@@ -11991,41 +12324,93 @@ function bindSettings() {
 
   // (Show TOS again removed from Settings — link is in the bottom app footer)
 
-  // Add source modal
-  document.getElementById('add-source-btn').addEventListener('click', () =>
-    document.getElementById('add-source-modal').classList.remove('hidden'));
-  document.getElementById('add-source-cancel').addEventListener('click', () =>
-    document.getElementById('add-source-modal').classList.add('hidden'));
+  // Add / Edit source modal — the popup logic lives at module scope (so the
+  // per-card Edit button can open it); here we only wire the DOM events.
+  document.getElementById('add-source-btn').addEventListener('click', () => openSourceCreator());
+  document.getElementById('add-source-cancel').addEventListener('click', () => {
+    document.getElementById('add-source-modal').classList.add('hidden');
+    _sourceEditName = null;
+  });
+  document.getElementById('jackett-install-cancel').addEventListener('click', () =>
+    document.getElementById('jackett-install-modal').classList.add('hidden'));
+  document.getElementById('jackett-install-download').addEventListener('click', function() {
+    const url = this.dataset.url;
+    if (url) window.api.shell.openExternal(url);
+    document.getElementById('jackett-install-modal').classList.add('hidden');
+  });
+  document.getElementById('new-source-type').addEventListener('change', () => {
+    syncSourceType();
+    // Only auto-detect (and maybe pop the install guide) when the user actively
+    // picks Torznab while CREATING a source — not while editing an existing one.
+    if (!_sourceEditName && document.getElementById('new-source-type').value === 'torznab') refreshTorznabDetect(true);
+  });
+  syncSourceType();
+
+  // Torznab indexer picker — query the Jackett/Prowlarr instance for its
+  // configured indexers so the user can target one tracker instead of "all".
+  document.getElementById('new-source-load-indexers').addEventListener('click', async function() {
+    const url = document.getElementById('new-source-api').value.trim();
+    const key = document.getElementById('new-source-apikey').value.trim();
+    if (!url) { showToast({ title: t('settings_source_type_torznab') || 'Torznab', body: t('settings_source_url_first') || 'Enter the Torznab URL first.', kind: 'warn', ttl: 4000 }); return; }
+    const btn = this;
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.textContent = t('settings_source_loading') || 'Loading…';
+    try {
+      const res = await window.api.torrent.listIndexers({ url, apikey: key });
+      if (!res || !res.ok) { showToast({ title: t('settings_source_type_torznab') || 'Torznab', body: (res && res.error) || 'Could not load indexers.', kind: 'err', ttl: 6000 }); return; }
+      // 0 configured indexers = the user reached Jackett/Prowlarr fine but hasn't
+      // added any trackers there yet. Guide them instead of a bare "0 found".
+      if (!res.indexers.length) {
+        showToast({ title: t('settings_source_type_torznab') || 'Torznab', body: t('settings_source_no_indexers') || 'Connected, but no trackers are configured in Jackett/Prowlarr yet. Add some in its dashboard (http://localhost:9117), then retry.', kind: 'warn', ttl: 8000 });
+        return;
+      }
+      const sel = document.getElementById('new-source-indexer');
+      // First option keeps the aggregate URL the user typed (search all sites).
+      const allUrl = url.replace(/\/api\/v2\.0\/indexers\/[^/]+\/results\/torznab.*$/i, '/api/v2.0/indexers/all/results/torznab');
+      const opts = [`<option value="${esc(allUrl)}">${esc(t('settings_source_all_indexers') || 'All indexers')} ✓</option>`];
+      for (const ix of res.indexers) opts.push(`<option value="${esc(ix.torznab)}">${esc(ix.name)}</option>`);
+      sel.innerHTML = opts.join('');
+      sel.classList.remove('hidden');
+      showToast({ title: t('settings_source_type_torznab') || 'Torznab', body: (t('settings_source_indexers_found', { n: res.indexers.length, flavor: res.flavor }) || `${res.indexers.length} indexers found (${res.flavor}).`), kind: 'ok', ttl: 4000 });
+    } catch (e) {
+      showToast({ title: t('settings_source_type_torznab') || 'Torznab', body: e.message || String(e), kind: 'err', ttl: 6000 });
+    } finally {
+      btn.disabled = false; btn.innerHTML = original;
+      if (typeof applyLucideIcons === 'function') applyLucideIcons(btn);
+    }
+  });
+  // Picking an indexer rewrites the API URL to that indexer's Torznab endpoint
+  // (or back to the aggregate URL for "All indexers").
+  document.getElementById('new-source-indexer').addEventListener('change', function() {
+    if (this.value) document.getElementById('new-source-api').value = this.value;
+  });
+
   document.getElementById('add-source-confirm').addEventListener('click', () => {
-    const name = document.getElementById('new-source-name').value.trim();
+    const editing = !!_sourceEditName;
+    const name = editing ? _sourceEditName : document.getElementById('new-source-name').value.trim();
     const api  = document.getElementById('new-source-api').value.trim();
+    const type = document.getElementById('new-source-type').value;
+    // A type is required for NEW sources; built-ins being edited stay type-less.
+    if (!editing && !type) { showToast({ title: t('settings_add_source') || 'Add Source', body: t('settings_source_type_required') || 'Pick a source type first.', kind: 'warn', ttl: 4000 }); return; }
     if (!name || !api) return;
-    // Show legal warning when adding a NON-default source
-    if (!isTrustedSourceName(name)) {
+    // Legal warning only when ADDING a new, non-default source.
+    if (!editing && !isTrustedSourceName(name)) {
       document.getElementById('custom-source-name-display').textContent = `${name} → ${api}`;
       document.getElementById('add-source-modal').classList.add('hidden');
       document.getElementById('custom-source-warning-modal').classList.remove('hidden');
       return;
     }
-    finalizeAddSource(name, api);
+    saveSource();
   });
 
   document.getElementById('custom-source-warning-cancel').addEventListener('click', () => {
     document.getElementById('custom-source-warning-modal').classList.add('hidden');
+    _sourceEditName = null;
   });
   document.getElementById('custom-source-warning-confirm').addEventListener('click', () => {
-    const name = document.getElementById('new-source-name').value.trim();
-    const api  = document.getElementById('new-source-api').value.trim();
     document.getElementById('custom-source-warning-modal').classList.add('hidden');
-    if (name && api) finalizeAddSource(name, api);
+    saveSource();
   });
-
-  function finalizeAddSource(name, api) {
-    config.sites[name] = { enabled: true, api, max_results: null };
-    renderSettings();
-    document.getElementById('new-source-name').value = '';
-    document.getElementById('new-source-api').value  = '';
-  }
 
   // Export / Import
   // Export-mode segmented buttons (Shareable / Backup) — replaces the radios.

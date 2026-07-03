@@ -1105,5 +1105,11 @@
   "xtract_image_recolor_tol": "Допуск",
   "xtract_image_recolor_apply": "Заменить",
   "xtract_image_recolor_done_title": "Цвет заменён",
-  "xtract_image_recolor_err_title": "Не удалось заменить"
+  "xtract_image_recolor_err_title": "Не удалось заменить",
+  "xtract_image_rmbg_title": "Удалить фон (цвет)",
+  "xtract_image_rmbg_help": "Делает однотонный фон прозрачным. Выберите цвет фона и увеличьте допуск, чтобы захватить и близкие оттенки. Сохраняется как PNG с прозрачностью.",
+  "xtract_image_rmbg_color": "Фон",
+  "xtract_image_rmbg_apply": "Удалить",
+  "xtract_image_rmbg_done_title": "Фон удалён",
+  "xtract_image_rmbg_err_title": "Не удалось удалить"
 }

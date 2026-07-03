@@ -121,6 +121,7 @@ contextBridge.exposeInMainWorld('api', {
     heicToJpg:   payload => ipcRenderer.invoke('images:heicToJpg',   payload),
     crop:           payload => ipcRenderer.invoke('images:crop',         payload),
     replaceColor:   payload => ipcRenderer.invoke('images:replaceColor', payload),
+    removeBgColor:  payload => ipcRenderer.invoke('images:removeBgColor', payload),
     applyEffects:   payload => ipcRenderer.invoke('images:applyEffects', payload),
     watermark:      payload => ipcRenderer.invoke('images:watermark',    payload),
     compressToSize: payload => ipcRenderer.invoke('images:compressToSize', payload),
@@ -161,7 +162,12 @@ contextBridge.exposeInMainWorld('api', {
   torrent: {
     search:         (q, cfg) => ipcRenderer.invoke('torrent:search', { query: q, config: cfg }),
     save:           payload  => ipcRenderer.invoke('torrent:save', payload),
-    onSiteProgress: cb       => ipcRenderer.on('torrent:siteProgress', (_, d) => cb(d))
+    onSiteProgress: cb       => ipcRenderer.on('torrent:siteProgress', (_, d) => cb(d)),
+    onSearchPlan:   cb       => ipcRenderer.on('torrent:searchPlan',   (_, d) => cb(d)),
+    // List configured indexers from a Jackett/Prowlarr instance (Torznab picker)
+    listIndexers:   payload  => ipcRenderer.invoke('torrent:listIndexers', payload),
+    // Detect a locally-running Jackett/Prowlarr (for Torznab auto-config)
+    detect:         ()       => ipcRenderer.invoke('torznab:detect')
   },
   media: {
     download:         payload => ipcRenderer.invoke('media:download', payload),

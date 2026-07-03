@@ -1105,5 +1105,11 @@
   "xtract_image_recolor_tol": "容差",
   "xtract_image_recolor_apply": "替换",
   "xtract_image_recolor_done_title": "颜色已替换",
-  "xtract_image_recolor_err_title": "替换失败"
+  "xtract_image_recolor_err_title": "替换失败",
+  "xtract_image_rmbg_title": "移除背景（颜色）",
+  "xtract_image_rmbg_help": "将纯色背景变为透明。选择背景颜色并提高容差以同时匹配相近色调。保存为带透明度的 PNG。",
+  "xtract_image_rmbg_color": "背景",
+  "xtract_image_rmbg_apply": "移除",
+  "xtract_image_rmbg_done_title": "已移除背景",
+  "xtract_image_rmbg_err_title": "移除失败"
 }

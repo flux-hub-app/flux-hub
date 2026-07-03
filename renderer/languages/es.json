@@ -1105,5 +1105,11 @@
   "xtract_image_recolor_tol": "Tolerancia",
   "xtract_image_recolor_apply": "Reemplazar",
   "xtract_image_recolor_done_title": "Color reemplazado",
-  "xtract_image_recolor_err_title": "Error al reemplazar"
+  "xtract_image_recolor_err_title": "Error al reemplazar",
+  "xtract_image_rmbg_title": "Quitar fondo (color)",
+  "xtract_image_rmbg_help": "Hace transparente un fondo de color uniforme. Elige el color del fondo y sube la tolerancia para captar también los tonos cercanos. Se guarda como PNG con transparencia.",
+  "xtract_image_rmbg_color": "Fondo",
+  "xtract_image_rmbg_apply": "Quitar",
+  "xtract_image_rmbg_done_title": "Fondo eliminado",
+  "xtract_image_rmbg_err_title": "Error al quitar"
 }

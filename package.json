@@ -1,6 +1,6 @@
 {
   "name": "flux-hub",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "FLUX — Fetch, Load, Use & eXtract. Open-source media manager built on Electron, yt-dlp and ffmpeg.",
   "main": "main.js",
   "license": "GPL-3.0-or-later",
