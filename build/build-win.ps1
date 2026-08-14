@@ -7,15 +7,40 @@
 #   .\build\build-win.ps1 -NoLaunch  -> build, never ask (useful for CI / scripted runs)
 #   .\build\build-win.ps1 -CleanData -> also wipe %APPDATA%\flux-hub (prefs + fetched
 #                                       binaries) for a first-launch-clean test
+#   .\build\build-win.ps1 -Help      -> show this usage and exit (no build)
 # Same switches can be passed via the root .\build.ps1 dispatcher.
 # ============================================================
 param(
     [switch]$Launch,
     [switch]$NoLaunch,
-    [switch]$CleanData
+    [switch]$CleanData,
+    [Alias('h','?')]
+    [switch]$Help
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($Help) {
+    Write-Host ""
+    Write-Host "FLUX -- build & launch helper (Windows)" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  .\build.ps1              " -ForegroundColor White -NoNewline; Write-Host "Build, then ask whether to launch the portable" -ForegroundColor DarkGray
+    Write-Host "  .\build.ps1 -Launch      " -ForegroundColor White -NoNewline; Write-Host "Build, then auto-launch the portable (no prompt)" -ForegroundColor DarkGray
+    Write-Host "  .\build.ps1 -NoLaunch    " -ForegroundColor White -NoNewline; Write-Host "Build, never ask (CI / scripted use)" -ForegroundColor DarkGray
+    Write-Host "  .\build.ps1 -CleanData   " -ForegroundColor White -NoNewline; Write-Host "Also wipe %APPDATA%\flux-hub (settings + fetched binaries)" -ForegroundColor DarkGray
+    Write-Host "  .\build.ps1 -Help        " -ForegroundColor White -NoNewline; Write-Host "Show this help" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  Dev mode (no build, fastest iteration):" -ForegroundColor Cyan
+    Write-Host "    npm install"
+    Write-Host "    npm run fetch-all      " -NoNewline -ForegroundColor White; Write-Host "yt-dlp + ffmpeg + fpcalc into vendor\ (first time only)" -ForegroundColor DarkGray
+    Write-Host "    npm start"
+    Write-Host ""
+    Write-Host "  Output : dist\FLUX Hub Setup*.exe (installer) + dist\FLUX Hub*.exe (portable)" -ForegroundColor DarkGray
+    Write-Host "  Log    : build\build-win.log" -ForegroundColor DarkGray
+    Write-Host "  Details: build\README.md" -ForegroundColor DarkGray
+    Write-Host ""
+    exit 0
+}
 
 
 # ── Disable Windows Console QuickEdit Mode ───────────────────────────────────
@@ -49,6 +74,12 @@ $projectRoot = Split-Path -Parent $scriptDir
 # Set CWD to project root so npm/npx/node find package.json + scripts/.
 [Environment]::CurrentDirectory = $projectRoot
 Set-Location -LiteralPath $projectRoot
+
+# Mirror the whole run to build\build-win.log — lives next to the script
+# (mirrors build-mac.sh / build-linux.sh), not in the project root.
+$logFile = Join-Path $scriptDir 'build-win.log'
+try { Start-Transcript -Path $logFile -Force | Out-Null }
+catch { Write-Host "WARN: could not start log transcript ($_)" -ForegroundColor DarkGray }
 
 # Redirect TEMP to dist\tmp (the single staging area for this build). Many
 # users have FLUX on D: with C: nearly full; electron-builder stages
@@ -273,3 +304,5 @@ if ($portable) {
         Start-Process -FilePath $portable.FullName
     }
 }
+
+try { Stop-Transcript | Out-Null } catch {}

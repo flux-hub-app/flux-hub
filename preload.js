@@ -50,7 +50,11 @@ contextBridge.exposeInMainWorld('api', {
     // supported replacement for getting the OS path from a drag-dropped
     // File handle. Exposed here so the renderer can call it without a
     // direct dependency on electron in the browser context.
-    pathForDropped: file => { try { return webUtils.getPathForFile(file); } catch { return null; } }
+    pathForDropped: file => { try { return webUtils.getPathForFile(file); } catch { return null; } },
+    // Cross-app drops (e.g. an image dragged out of a browser) have no disk
+    // path — persist the File's bytes / download the source URL instead.
+    saveDroppedBuffer: payload => ipcRenderer.invoke('file:saveDroppedBuffer', payload),
+    importUrl:         url     => ipcRenderer.invoke('file:importUrl', url)
   },
   shell: {
     openFolder:      p => ipcRenderer.invoke('shell:openFolder',     p),
@@ -122,6 +126,8 @@ contextBridge.exposeInMainWorld('api', {
     crop:           payload => ipcRenderer.invoke('images:crop',         payload),
     replaceColor:   payload => ipcRenderer.invoke('images:replaceColor', payload),
     removeBgColor:  payload => ipcRenderer.invoke('images:removeBgColor', payload),
+    // Non-destructive editor: apply the whole pending edit stack in one pass
+    applyPipeline:  payload => ipcRenderer.invoke('images:applyPipeline', payload),
     applyEffects:   payload => ipcRenderer.invoke('images:applyEffects', payload),
     watermark:      payload => ipcRenderer.invoke('images:watermark',    payload),
     compressToSize: payload => ipcRenderer.invoke('images:compressToSize', payload),
@@ -174,6 +180,8 @@ contextBridge.exposeInMainWorld('api', {
     probe:            url     => ipcRenderer.invoke('media:probe', url),
     getStreamUrl:     url     => ipcRenderer.invoke('media:getStreamUrl', url),
     resolveStreamUrl: payload => ipcRenderer.invoke('media:resolveStreamUrl', payload),
+    // Related/recommended items for a URL ("you might also like" panel)
+    getRelated:       payload => ipcRenderer.invoke('media:related', payload),
     stop:             payload => ipcRenderer.invoke('media:stop', payload),
     onProgress:       cb      => ipcRenderer.on('media:progress', (_, d) => cb(d))
   },
@@ -239,8 +247,10 @@ contextBridge.exposeInMainWorld('api', {
     subs:        payload    => ipcRenderer.invoke('xtract:subs',      payload),
     frame:       payload    => ipcRenderer.invoke('xtract:frame',     payload),
     concat:      payload    => ipcRenderer.invoke('xtract:concat',    payload),
+    audiotrack:  payload    => ipcRenderer.invoke('xtract:audiotrack', payload),
     meta:        payload    => ipcRenderer.invoke('xtract:meta',      payload),
     normalize:   payload    => ipcRenderer.invoke('xtract:normalize', payload),
+    applyPipeline: payload  => ipcRenderer.invoke('xtract:applyPipeline', payload),
     onProgress:  cb         => ipcRenderer.on('xtract:progress', (_, d) => cb(d))
   },
   system: {
@@ -252,6 +262,8 @@ contextBridge.exposeInMainWorld('api', {
     getAppVersion:    ()        => ipcRenderer.invoke('app:getVersion'),
     checkForUpdates:  ()        => ipcRenderer.invoke('updater:check'),
     signalReady:      ()        => ipcRenderer.invoke('app:ready'),
+    // OS "Open with" / file associations — main forwards media file paths
+    onOpenFiles:      cb        => ipcRenderer.on('app:openFiles', (_, paths) => cb(paths)),
     relaunch:         ()        => ipcRenderer.invoke('system:relaunch'),
     onSplashAudioPref: cb       => ipcRenderer.on('config:splashAudioPref', (_, v) => cb(v))
   },
@@ -275,5 +287,17 @@ contextBridge.exposeInMainWorld('api', {
     install:        ()  => ipcRenderer.invoke('updater:install'),
     onAvailable:    cb  => ipcRenderer.on('updater:available',  (_, d) => cb(d)),
     onDownloaded:   cb  => ipcRenderer.on('updater:downloaded', (_, d) => cb(d))
+  },
+  remote: {
+    getStatus:           ()      => ipcRenderer.invoke('remote:getStatus'),
+    generatePairingCode: ()      => ipcRenderer.invoke('remote:generatePairingCode'),
+    generateLanPin:      ()      => ipcRenderer.invoke('remote:generateLanPin'),
+    removeWhitelistChat: chatId  => ipcRenderer.invoke('remote:removeWhitelistChat', chatId),
+    removeLanDevice:     token   => ipcRenderer.invoke('remote:removeLanDevice', token),
+    // Fired when a phone completes Telegram pairing while the app is open
+    onPaired:            cb     => ipcRenderer.on('remote:paired', (_, d) => cb(d)),
+    // Fired when a phone-triggered download/torrent-save completes, so the
+    // desktop UI (downloads tracker, notification, History) reflects it too
+    onActionDone:        cb     => ipcRenderer.on('remote:actionDone', (_, d) => cb(d))
   }
 });

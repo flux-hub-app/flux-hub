@@ -1,6 +1,6 @@
 {
   "name": "flux-hub",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "FLUX — Fetch, Load, Use & eXtract. Open-source media manager built on Electron, yt-dlp and ffmpeg.",
   "main": "main.js",
   "license": "GPL-3.0-or-later",
@@ -28,6 +28,182 @@
     "directories": {
       "output": "dist"
     },
+    "fileAssociations": [
+      {
+        "ext": "mp3",
+        "name": "MP3 Audio",
+        "mimeType": "audio/mpeg",
+        "role": "Editor"
+      },
+      {
+        "ext": "flac",
+        "name": "FLAC Audio",
+        "mimeType": "audio/flac",
+        "role": "Editor"
+      },
+      {
+        "ext": "m4a",
+        "name": "M4A Audio",
+        "mimeType": "audio/mp4",
+        "role": "Editor"
+      },
+      {
+        "ext": "aac",
+        "name": "AAC Audio",
+        "mimeType": "audio/aac",
+        "role": "Editor"
+      },
+      {
+        "ext": "ogg",
+        "name": "OGG Audio",
+        "mimeType": "audio/ogg",
+        "role": "Editor"
+      },
+      {
+        "ext": "oga",
+        "name": "OGG Audio",
+        "mimeType": "audio/ogg",
+        "role": "Editor"
+      },
+      {
+        "ext": "opus",
+        "name": "Opus Audio",
+        "mimeType": "audio/opus",
+        "role": "Editor"
+      },
+      {
+        "ext": "wav",
+        "name": "WAV Audio",
+        "mimeType": "audio/wav",
+        "role": "Editor"
+      },
+      {
+        "ext": "mp4",
+        "name": "MP4 Video",
+        "mimeType": "video/mp4",
+        "role": "Editor"
+      },
+      {
+        "ext": "m4v",
+        "name": "M4V Video",
+        "mimeType": "video/x-m4v",
+        "role": "Editor"
+      },
+      {
+        "ext": "mkv",
+        "name": "MKV Video",
+        "mimeType": "video/x-matroska",
+        "role": "Editor"
+      },
+      {
+        "ext": "webm",
+        "name": "WebM Video",
+        "mimeType": "video/webm",
+        "role": "Editor"
+      },
+      {
+        "ext": "mov",
+        "name": "QuickTime Video",
+        "mimeType": "video/quicktime",
+        "role": "Editor"
+      },
+      {
+        "ext": "avi",
+        "name": "AVI Video",
+        "mimeType": "video/x-msvideo",
+        "role": "Editor"
+      },
+      {
+        "ext": "flv",
+        "name": "FLV Video",
+        "mimeType": "video/x-flv",
+        "role": "Editor"
+      },
+      {
+        "ext": "wmv",
+        "name": "WMV Video",
+        "mimeType": "video/x-ms-wmv",
+        "role": "Editor"
+      },
+      {
+        "ext": "gif",
+        "name": "GIF Image",
+        "mimeType": "image/gif",
+        "role": "Editor"
+      },
+      {
+        "ext": "jpg",
+        "name": "JPEG Image",
+        "mimeType": "image/jpeg",
+        "role": "Editor"
+      },
+      {
+        "ext": "jpeg",
+        "name": "JPEG Image",
+        "mimeType": "image/jpeg",
+        "role": "Editor"
+      },
+      {
+        "ext": "png",
+        "name": "PNG Image",
+        "mimeType": "image/png",
+        "role": "Editor"
+      },
+      {
+        "ext": "webp",
+        "name": "WebP Image",
+        "mimeType": "image/webp",
+        "role": "Editor"
+      },
+      {
+        "ext": "avif",
+        "name": "AVIF Image",
+        "mimeType": "image/avif",
+        "role": "Editor"
+      },
+      {
+        "ext": "bmp",
+        "name": "BMP Image",
+        "mimeType": "image/bmp",
+        "role": "Editor"
+      },
+      {
+        "ext": "tif",
+        "name": "TIFF Image",
+        "mimeType": "image/tiff",
+        "role": "Editor"
+      },
+      {
+        "ext": "tiff",
+        "name": "TIFF Image",
+        "mimeType": "image/tiff",
+        "role": "Editor"
+      },
+      {
+        "ext": "heic",
+        "name": "HEIC Image",
+        "mimeType": "image/heic",
+        "role": "Editor"
+      },
+      {
+        "ext": "heif",
+        "name": "HEIF Image",
+        "mimeType": "image/heif",
+        "role": "Editor"
+      },
+      {
+        "ext": "svg",
+        "name": "SVG Image",
+        "mimeType": "image/svg+xml",
+        "role": "Editor"
+      },
+      {
+        "ext": "pdf",
+        "name": "PDF Document",
+        "mimeType": "application/pdf",
+        "role": "Viewer"
+      }
+    ],
     "files": [
       "main.js",
       "preload.js",
@@ -165,6 +341,7 @@
     "node-id3": "^0.2.9",
     "node-shazam": "^1.2.7",
     "pdfjs-dist": "^5.7.284",
+    "qrcode": "^1.5.4",
     "sharp": "^0.34.5"
   },
   "devDependencies": {

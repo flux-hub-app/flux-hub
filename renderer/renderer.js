@@ -336,6 +336,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderDownloadsBadge();  // initial: hide badge when empty, keep icon visible
   bindRSS();
   bindNzb();
+  bindRemote();
   bindIrc();
   bindHistory();
   bindSettings();
@@ -350,6 +351,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   bindXtract();
   bindImageCropInteractions();
   bindImageCropControls();
+  bindImgToolRail();
+  bindAvToolRail();
   bindImageFxControls();
   bindImageResizeControls();
   bindSplitTracksControls();
@@ -511,9 +514,9 @@ function bindLegalNotices() {
   // Footer "Terms" link → reopen TOS overlay (uses the same showTOS so the checkbox/button listeners stay bound)
   document.getElementById('footer-tos-link')?.addEventListener('click', () => showTOS());
   document.getElementById('home-tos-link')?.addEventListener('click', () => showTOS());
-  // Footer credit → opens external GitHub link (URL set when user provides it)
+  // Footer credit → opens external GitHub repo link
   document.getElementById('footer-credit')?.addEventListener('click', () => {
-    const url = 'https://github.com/flux-hub-app';
+    const url = 'https://github.com/flux-hub-app/flux-hub';
     window.api.shell.openExternal(url);
   });
 
@@ -1106,8 +1109,193 @@ async function probeXtractInputAudio(filePath) {
 // currently loaded. Called after every xtractInput assignment so the
 // toolbar visual matches the actual state.
 function updateXtractClearButton() {
-  const btn = document.getElementById('xtract-clear-btn');
-  if (btn) btn.hidden = !xtractInput;
+  // Icon-only toolbar: buttons stay visible, they just disable with no file.
+  const loaded = !!xtractInput;
+  const clear = document.getElementById('xtract-clear-btn');
+  if (clear) clear.disabled = !loaded;
+  const reset = document.getElementById('xtract-img-reset-btn');
+  const save  = document.getElementById('xtract-img-save-btn');
+  if (reset) reset.disabled = !loaded;
+  if (save)  save.disabled  = !loaded;
+  // Audio/video pipeline pair: Reset always follows "file loaded"; Save is
+  // further gated on the pipeline actually having something staged (see
+  // updateAvPipelineToolbarState, called from renderXtractPipelinePreview).
+  const avReset = document.getElementById('xtract-av-reset-btn');
+  if (avReset) avReset.disabled = !loaded;
+  if (!loaded) updateAvPipelineToolbarState(false);
+}
+
+// Enables/disables the Save half of the audio/video pipeline toolbar pair
+// based on whether anything is actually staged — called from
+// renderXtractPipelinePreview every time the pipeline state is recomputed.
+function updateAvPipelineToolbarState(dirty) {
+  const save = document.getElementById('xtract-av-save-btn');
+  if (save) save.disabled = !xtractInput || !dirty;
+}
+
+// Reads the current staged state of Trim/Concat/Audiotrack/Normalize — same
+// source-of-truth pattern as the image editor's collectImageEdits(): live UI
+// state, not a separately-tracked object, so there's never a sync bug
+// between "what you see" and "what Save sends". Returns null pieces for any
+// stage that's a no-op so xtract:applyPipeline can skip them cheaply.
+function collectXtractPipeline() {
+  if (!trimEditor?.ws) return null;
+  const dur = trimEditor.ws.getDuration() || 0;
+  const region = trimEditor.region;
+  const { fadeIn, fadeOut } = readFadeParams();
+  let trim = null;
+  if (region && dur > 0) {
+    const isFullRange = region.start <= 0.01 && region.end >= dur - 0.01;
+    if (!isFullRange || fadeIn > 0 || fadeOut > 0) {
+      trim = {
+        start: document.getElementById('xtract-trim-start')?.value.trim(),
+        end:   document.getElementById('xtract-trim-end')?.value.trim(),
+        fadeIn, fadeOut
+      };
+    }
+  }
+  const mode = xtractAudiotrackMode();
+  const normalizeOn = document.getElementById('xtract-normalize-toggle')?.classList.contains('active');
+  const target = parseFloat(document.getElementById('xtract-normalize-target')?.value);
+  return {
+    // Order matters — this is exactly the list order shown/reorderable in
+    // the Concat card. Each extra carries its own staged fade-in/trim.
+    concatExtras: xtractConcatExtras.map(p => ({ path: p, ...getConcatExtraParams(p) })),
+    trim,
+    audiotrackMode: mode,
+    audiotrackFile: mode === 'replace' ? xtractReplAudioPath : null,
+    normalize: normalizeOn ? { target: Number.isFinite(target) ? Math.max(-40, Math.min(-5, target)) : -14 } : null
+  };
+}
+function xtractPipelineIsEmpty(p) {
+  return !p || (!p.concatExtras.length && !p.trim && !p.audiotrackMode && !p.normalize);
+}
+
+// Clears every staged pipeline op back to "untouched": full-range trim (no
+// fades), no concat extras, no audiotrack change, normalize off.
+function resetAvPipeline() {
+  if (trimEditor?.region && trimEditor?.ws) {
+    const dur = trimEditor.ws.getDuration() || trimEditor.region.end;
+    try { trimEditor.region.setOptions({ start: 0, end: dur }); } catch {}
+    syncTimeInputsFromRegion(trimEditor.region);
+  }
+  ['trim-fadein-toggle', 'trim-fadeout-toggle'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn?.classList.contains('active')) btn.click(); // click() re-runs its own disable/redraw logic
+  });
+  xtractConcatExtras = [];
+  xtractConcatExtraParams.clear();
+  renderConcatExtrasList();
+  resetAudiotrackReplacement();
+  resetXtractNormalizeToggle();
+  renderFadeOverlay();
+  renderXtractPipelinePreview();
+}
+
+let avSaveDir = null; // destination picked in the save modal (default: source dir)
+
+// Opens the save modal — prefills name/dir and lists the staged steps so the
+// user can see exactly what Save is about to apply before confirming.
+function doAvSaveAll() {
+  if (!xtractInput) return;
+  const pipeline = collectXtractPipeline();
+  if (xtractPipelineIsEmpty(pipeline)) {
+    showToast({
+      title: t('xtract_image_no_edits') || 'Nothing to save',
+      body:  t('xtract_image_no_edits_body') || 'No pending edits — adjust a tool first.',
+      kind:  'warn', ttl: 4000
+    });
+    return;
+  }
+  avSaveDir = xtractInput.replace(/[\\/][^\\/]+$/, '');
+  const dirLabel = document.getElementById('av-save-dir-label');
+  if (dirLabel) dirLabel.textContent = avSaveDir;
+  const base = xtractInput.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+  const nameEl = document.getElementById('av-save-name');
+  if (nameEl) nameEl.value = `${base}-edit`;
+  const stepsList = document.getElementById('av-save-steps');
+  if (stepsList) {
+    const steps = [];
+    if (pipeline.concatExtras.length) steps.push(`${t('xtract_card_concat') || 'Concat'} (+${pipeline.concatExtras.length})`);
+    if (pipeline.trim) steps.push(t('xtract_card_trim') || 'Trim');
+    if (pipeline.audiotrackMode === 'remove') steps.push(t('xtract_audiotrack_remove') || 'Remove original audio');
+    if (pipeline.audiotrackMode === 'replace') steps.push(t('xtract_card_audiotrack') || 'Audio track');
+    if (pipeline.normalize) steps.push(`${t('xtract_card_normalize') || 'Audio normalize'} (${pipeline.normalize.target} LUFS)`);
+    stepsList.innerHTML = steps.map(s => `<li class="concat-extra-item"><span class="concat-extra-name">${esc(s)}</span></li>`).join('');
+  }
+  document.getElementById('av-save-modal')?.classList.remove('hidden');
+  nameEl?.focus();
+}
+
+async function confirmAvSave() {
+  const modal = document.getElementById('av-save-modal');
+  if (!xtractInput) { modal?.classList.add('hidden'); return; }
+  const pipeline = collectXtractPipeline();
+  if (xtractPipelineIsEmpty(pipeline)) { modal?.classList.add('hidden'); return; }
+  const outputName = (document.getElementById('av-save-name')?.value || '').trim();
+  modal?.classList.add('hidden');
+  if (!(await ensureBinaries(['ffmpeg', 'ffprobe'], t('nav_xtract') || 'Convert'))) return;
+  const btn = document.getElementById('xtract-av-save-btn');
+  btn?.classList.add('btn-loading');
+  if (btn) btn.disabled = true;
+  const fmt = document.getElementById('xtract-trim-format')?.value || '';
+  const inIsGif = !!xtractInput && xtractInput.toLowerCase().endsWith('.gif');
+  let gif = null;
+  if (fmt === 'gif' || inIsGif) {
+    const fps    = parseInt(document.getElementById('xtract-gif-fps')?.value, 10);
+    const width  = parseInt(document.getElementById('xtract-gif-width')?.value, 10);
+    const dither = document.getElementById('xtract-gif-dither')?.value || 'bayer';
+    gif = {
+      fps:    Number.isFinite(fps)   ? Math.max(5, Math.min(30, fps))    : 15,
+      width:  Number.isFinite(width) ? width                              : 480,
+      dither: ['bayer','sierra2','floyd_steinberg','none'].includes(dither) ? dither : 'bayer'
+    };
+  }
+  const opId = ++xtractOpCounter;
+  const progress = document.getElementById('av-save-progress');
+  if (progress) {
+    progress.classList.remove('hidden');
+    progress.querySelector('.progress-bar').style.width = '0%';
+    progress.querySelector('.progress-bar-text').textContent = '0%';
+  }
+  appendLog('xtract-log', `Saving pipeline for ${xtractInput.split(/[\\/]/).pop()}…`, 'info');
+  const trackerEntry = addDownloadEntry({ title: xtractInput.split(/[\\/]/).pop(), source: 'xtract · pipeline', status: 'running' });
+  try {
+    const r = await window.api.xtract.applyPipeline({
+      input: xtractInput,
+      concatExtras: pipeline.concatExtras,
+      trim: pipeline.trim,
+      audiotrackMode: pipeline.audiotrackMode,
+      audiotrackFile: pipeline.audiotrackFile,
+      normalize: pipeline.normalize,
+      outputFormat: fmt || null,
+      outputName,
+      outputDir: avSaveDir,
+      gif,
+      opId
+    });
+    if (r.ok) {
+      appendLog('xtract-log', `✓ Saved: ${r.path}`, 'ok');
+      showToast({ title: t('xtract_image_saved_title') || 'Saved', body: r.path, kind: 'ok', ttl: 6000, actions: fileToastActions(r.path) });
+      updateDownloadEntry(trackerEntry.id, { status: 'done', path: r.path });
+      // Load the SAVED result back into the editor: the preview shows what
+      // was written and the pipeline restarts clean on top of it.
+      xtractInput = null;
+      destroyTrimEditor();
+      loadCapturedFile(r.path);
+    } else {
+      appendLog('xtract-log', `✗ ${r.error}`, 'error');
+      showToast({ title: t('xtract_image_save_err_title') || 'Save failed', body: r.error, kind: 'err', ttl: 6000 });
+      updateDownloadEntry(trackerEntry.id, { status: 'error', error: r.error });
+    }
+  } catch (e) {
+    appendLog('xtract-log', `✗ ${e.message}`, 'error');
+    updateDownloadEntry(trackerEntry.id, { status: 'error', error: e.message });
+  } finally {
+    btn?.classList.remove('btn-loading');
+    if (btn) btn.disabled = !xtractInput;
+    if (progress) setTimeout(() => progress.classList.add('hidden'), 1500);
+  }
 }
 
 // Drop the currently loaded XTRACT file — clears the editors, info chip,
@@ -1115,6 +1303,7 @@ function updateXtractClearButton() {
 function clearXtractInput() {
   xtractInput = null;
   xtractConcatExtras = [];
+  xtractConcatExtraParams.clear();
   // Drop any pending split-track candidates — they were tied to the file
   // that's leaving the editor.
   splitTracks = [];
@@ -1142,14 +1331,27 @@ function clearXtractInput() {
     info.setAttribute('data-i18n', 'xtract_no_file');
     info.textContent = t('xtract_no_file');
   }
-  const concatInfo = document.getElementById('xtract-concat-info');
-  if (concatInfo) concatInfo.textContent = t('xtract_concat_none');
+  renderConcatExtrasList();
   refreshXtractCards();
   refreshTrimFormatDropdown(xtractCurrentView);
   refreshGifOptionsVisibility();
   updateXtractClearButton();
 }
 let xtractConcatExtras = [];
+// path -> { duration, peaks } once decoded, or a pending Promise while decoding.
+// Peaks come from our own Web Audio decode (see decodeAudioPeaksForFile) since
+// WaveSurfer only exposes exportPeaks() for the ONE file it currently has loaded.
+const xtractConcatPeaksCache = new Map();
+// Cache of the primary file's peaks/RMS for the normalize preview — avoids
+// re-exporting/re-scanning on every keystroke in the target field.
+let normalizePeaksCache = null; // { path, peaks, rmsDb }
+let _normalizePreviewTimer = null;
+let _sharedAudioCtx = null;
+let xtractReplAudioPath = null; // audio file picked for the video audio-track swap
+// path -> { duration, peaks } once decoded, or a pending Promise while decoding
+// — same shape/pattern as xtractConcatPeaksCache, kept separate since it's
+// keyed on the replacement audio file rather than a concat extra.
+const xtractAudiotrackPeaksCache = new Map();
 let xtractOpCounter = 0;
 let xtractCurrentView = 'audio';
 
@@ -1167,7 +1369,8 @@ const XTRACT_FIELD_IDS = [
   'trim-fadein-dur',
   'trim-fadeout-dur',
   'xtract-frame-at',
-  'xtract-frame-format'
+  'xtract-frame-format',
+  'xtract-normalize-target'
 ];
 
 // Format options for the unified Trim+Convert dropdown. The set shown depends
@@ -1210,6 +1413,21 @@ function detectMediaKind(filePath) {
   return 'unknown';
 }
 
+// Only ever queried once at boot (bindXtract, below) — a binary fetched
+// LATER from Settings > Modules would otherwise leave this banner stuck on
+// "missing" for the rest of the session even though ffmpeg now works fine
+// (getFfmpegPath() itself re-checks the filesystem live, so real Xtract runs
+// aren't actually blocked — only this status text goes stale). Re-run after
+// any successful binary fetch so it can't lie.
+function refreshXtractFfmpegStatus() {
+  window.api.xtract.checkFfmpeg().then(r => {
+    const el = document.getElementById('xtract-ffmpeg-status');
+    if (!el) return;
+    el.classList.toggle('missing', !r.ok);
+    el.textContent = r.ok ? '' : t('xtract_ffmpeg_missing');
+  });
+}
+
 function bindXtract() {
   const pickBtn = document.getElementById('xtract-pick-btn');
   if (!pickBtn) return;
@@ -1217,16 +1435,7 @@ function bindXtract() {
   // switchTab() calls setXtractView() based on data-xtract-view on the nav item.
 
   // ffmpeg availability check on tab init.
-  window.api.xtract.checkFfmpeg().then(r => {
-    const el = document.getElementById('xtract-ffmpeg-status');
-    if (!el) return;
-    if (r.ok) {
-      el.textContent = '';
-    } else {
-      el.textContent = t('xtract_ffmpeg_missing');
-      el.classList.add('missing');
-    }
-  });
+  refreshXtractFfmpegStatus();
 
   // Live progress: ffmpeg sends percentages keyed by opId.
   window.api.xtract.onProgress(({ opId, pct }) => {
@@ -1271,10 +1480,14 @@ function bindXtract() {
     }
     xtractInput = r;
     xtractConcatExtras = [];
+    xtractConcatExtraParams.clear();
+    normalizePeaksCache = null;
+    resetAudiotrackReplacement();
+    resetXtractNormalizeToggle();
     updateXtractClearButton();
     const info = document.getElementById('xtract-file-info');
     info.textContent = r.split(/[\\/]/).pop();
-    document.getElementById('xtract-concat-info').textContent = t('xtract_concat_none');
+    renderConcatExtrasList();
     refreshXtractCards();
     probeXtractInputAudio(r);  // async; will re-refresh once known if it's a silent video
     refreshTrimFormatDropdown(xtractCurrentView);  // re-filter on file change (GIF strips audio outputs)
@@ -1306,58 +1519,91 @@ function bindXtract() {
     });
     if (!r) return;
     xtractConcatExtras.push(r);
-    document.getElementById('xtract-concat-info').textContent = t('xtract_concat_count', { n: xtractConcatExtras.length });
+    renderConcatExtrasList();
+    renderXtractPipelinePreview();
+    refreshXtractCards(); // Split's Concat-block gate depends on the list length
+    ensureConcatExtraMeta(r).then(() => { renderConcatExtrasList(); renderXtractPipelinePreview(); });
   });
 
-  // Card Run buttons
+  // Extraction tools (produce a separate derived file, run immediately —
+  // unlike Trim/Concat/Audiotrack/Normalize below, these aren't part of the
+  // non-destructive pipeline).
   document.getElementById('xtract-audio-btn').addEventListener('click', () => runXtract('audio',   { format: document.getElementById('xtract-audio-format').value }));
-  // The unified trim+convert button runs xtract:trim, picking the output
-  // format from the inline dropdown. Fades are read from the icon-only
-  // toggle buttons (`.fade-toggle-btn.active`) — when off, duration is 0.
-  document.getElementById('xtract-trim-btn').addEventListener('click', () => {
-    const fadeInOn  = document.getElementById('trim-fadein-toggle')?.classList.contains('active');
-    const fadeOutOn = document.getElementById('trim-fadeout-toggle')?.classList.contains('active');
-    const fadeIn    = fadeInOn  ? Math.max(0, parseFloat(document.getElementById('trim-fadein-dur').value)  || 0) : 0;
-    const fadeOut   = fadeOutOn ? Math.max(0, parseFloat(document.getElementById('trim-fadeout-dur').value) || 0) : 0;
-    // Forward GIF tuning knobs only when relevant. Backend ignores `gif`
-    // when neither input nor output is gif, so always-sending is safe — but
-    // saves bytes/clarity to gate it here. parseInt with NaN-guard so a
-    // blank input doesn't poison the payload.
-    const fmt = document.getElementById('xtract-trim-format').value;
-    const inIsGif = !!xtractInput && xtractInput.toLowerCase().endsWith('.gif');
-    let gif = null;
-    if (fmt === 'gif' || inIsGif) {
-      const fps    = parseInt(document.getElementById('xtract-gif-fps')?.value, 10);
-      const width  = parseInt(document.getElementById('xtract-gif-width')?.value, 10);
-      const dither = document.getElementById('xtract-gif-dither')?.value || 'bayer';
-      gif = {
-        fps:    Number.isFinite(fps)   ? Math.max(5, Math.min(30, fps))    : 15,
-        width:  Number.isFinite(width) ? width                              : 480,
-        dither: ['bayer','sierra2','floyd_steinberg','none'].includes(dither) ? dither : 'bayer'
-      };
-    }
-    runXtract('trim', {
-      start: document.getElementById('xtract-trim-start').value.trim(),
-      end:   document.getElementById('xtract-trim-end').value.trim(),
-      outputFormat: fmt,
-      fadeIn, fadeOut,
-      gif
-    });
-  });
   bindTrimEditorControls();
   // Populate the unified trim+convert format dropdown for the initial view.
   refreshTrimFormatDropdown(xtractCurrentView);
   // Hide / show the fade controls whenever the user changes output format.
-  document.getElementById('xtract-trim-format')?.addEventListener('change', refreshFadeControlsVisibility);
+  // Format/fade changes no longer fire an immediate ffmpeg run — they're
+  // pipeline state, read at Save time — but still need to redraw the
+  // composite preview (fades affect the dirty flag) and the GIF options.
+  document.getElementById('xtract-trim-format')?.addEventListener('change', () => { refreshFadeControlsVisibility(); scheduleXtractPipelinePreview(); });
   document.getElementById('xtract-subs-btn').addEventListener('click',   () => runXtract('subs',     {}));
   document.getElementById('xtract-subs-find-online-btn').addEventListener('click', () => openSubsSearchModal());
   document.getElementById('xtract-frame-btn').addEventListener('click',  () => runXtract('frame',    {
     at:     document.getElementById('xtract-frame-at').value.trim(),
     format: document.getElementById('xtract-frame-format').value
   }));
-  document.getElementById('xtract-concat-btn').addEventListener('click', () => runXtract('concat',   { extras: xtractConcatExtras }));
+  // Audio-track surgery: staged, not run immediately. "Remove" is a toggle
+  // (mutually exclusive with a picked replacement file); picking a file
+  // implicitly switches the mode to "replace" and clears any pending remove.
+  document.getElementById('xtract-mute-btn')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    const nowActive = !btn.classList.contains('active');
+    btn.classList.toggle('active', nowActive);
+    btn.setAttribute('aria-pressed', String(nowActive));
+    if (nowActive) {
+      xtractReplAudioPath = null;
+      const info = document.getElementById('xtract-replaudio-info');
+      if (info) info.textContent = t('xtract_audiotrack_none') || 'No audio selected';
+      destroyReplacementAudioSync();
+    }
+    renderXtractPipelinePreview();
+  });
+  document.getElementById('xtract-replaudio-pick-btn')?.addEventListener('click', async () => {
+    const r = await window.api.dialog.pickFile({
+      filters: [
+        { name: 'Audio', extensions: ['mp3', 'flac', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wav'] },
+        { name: 'All', extensions: ['*'] }
+      ]
+    });
+    if (!r) return;
+    xtractReplAudioPath = r;
+    const info = document.getElementById('xtract-replaudio-info');
+    if (info) info.textContent = r.split(/[\\/]/).pop();
+    const muteBtn = document.getElementById('xtract-mute-btn');
+    muteBtn?.classList.remove('active');
+    muteBtn?.setAttribute('aria-pressed', 'false');
+    ensureReplacementAudioSync();
+    renderXtractPipelinePreview();
+  });
   document.getElementById('xtract-meta-btn').addEventListener('click',   () => runXtract('meta',     {}));
-  document.getElementById('xtract-normalize-btn').addEventListener('click', () => runXtract('normalize', {}));
+  // Normalize: explicit enable toggle (a target number alone can't express
+  // "off") + live preview on every target change.
+  document.getElementById('xtract-normalize-toggle')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    const nowActive = !btn.classList.contains('active');
+    btn.classList.toggle('active', nowActive);
+    btn.setAttribute('aria-pressed', String(nowActive));
+    renderXtractPipelinePreview();
+  });
+  document.getElementById('xtract-normalize-target')?.addEventListener('input', scheduleXtractPipelinePreview);
+
+  // Pipeline globals in the top toolbar + the save modal.
+  document.getElementById('xtract-av-reset-btn')?.addEventListener('click', resetAvPipeline);
+  document.getElementById('xtract-av-save-btn')?.addEventListener('click', doAvSaveAll);
+  document.getElementById('av-save-confirm')?.addEventListener('click', confirmAvSave);
+  document.getElementById('av-save-cancel')?.addEventListener('click', () =>
+    document.getElementById('av-save-modal')?.classList.add('hidden'));
+  document.getElementById('av-save-name')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') confirmAvSave();
+  });
+  document.getElementById('av-save-dir-btn')?.addEventListener('click', async () => {
+    const dir = await window.api.dialog.pickFolder();
+    if (!dir) return;
+    avSaveDir = dir;
+    const dirLabel = document.getElementById('av-save-dir-label');
+    if (dirLabel) dirLabel.textContent = dir;
+  });
 }
 
 // Snapshot the active view's live state (file, extras, form values) into
@@ -1379,6 +1625,7 @@ function saveXtractViewState() {
 function applyXtractViewState(view) {
   const s = xtractState[view];
   xtractInput = s.input;
+  normalizePeaksCache = null;
   updateXtractClearButton();
   if (xtractInput) probeXtractInputAudio(xtractInput);  // gate audio cards (silent-video check)
   xtractConcatExtras = s.concatExtras.slice();
@@ -1398,12 +1645,7 @@ function applyXtractViewState(view) {
   }
   const info = document.getElementById('xtract-file-info');
   if (info) info.textContent = xtractInput ? xtractInput.split(/[\\/]/).pop() : t('xtract_no_file');
-  const cinfo = document.getElementById('xtract-concat-info');
-  if (cinfo) {
-    cinfo.textContent = xtractConcatExtras.length
-      ? t('xtract_concat_count', { n: xtractConcatExtras.length })
-      : t('xtract_concat_none');
-  }
+  renderConcatExtrasList();
 }
 
 function setXtractView(view) {
@@ -1428,17 +1670,64 @@ function setXtractView(view) {
   // bundled) — hide it so it never reads as "image tools need ffmpeg".
   const ffStatus = document.getElementById('xtract-ffmpeg-status');
   if (ffStatus) ffStatus.style.display = (view === 'image') ? 'none' : '';
+  // Image-editor globals (reset-all / save) only make sense in the image view;
+  // the audio/video pipeline pair only in those two views.
+  ['xtract-img-actions-sep', 'xtract-img-reset-btn', 'xtract-img-save-btn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (view === 'image') ? '' : 'none';
+  });
+  ['xtract-av-reset-btn', 'xtract-av-save-btn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (view === 'image') ? 'none' : '';
+  });
   // Visual editor mount: audio/video → WaveSurfer trim editor; image →
   // crop canvas. Cross-mount destruction keeps the two from competing.
   if (view === 'image') {
     destroyTrimEditor();
     if (xtractInput) ensureImageEditor(xtractInput);
     else destroyImageEditor();
+    setImgTool(imgToolCurrent); // re-sync rail/panel/stage visibility
   } else {
     destroyImageEditor();
     if (xtractInput) ensureTrimEditor(xtractInput);
     else destroyTrimEditor();
+    setAvTool(avToolCurrent[view] || 'trim'); // re-sync rail/panel for this view
   }
+}
+
+// ─── AUDIO/VIDEO EDITOR TOOL RAIL (same single-window layout as image) ───────
+// One layout for both sub-views; the rail hides video-only tools on audio
+// (CSS) and each view remembers its own last tool.
+let avToolCurrent = { audio: 'trim', video: 'trim' };
+
+function bindAvToolRail() {
+  document.querySelectorAll('#av-tool-rail .av-tool-btn').forEach(btn =>
+    btn.addEventListener('click', () => setAvTool(btn.dataset.avTool)));
+}
+
+function setAvTool(tool) {
+  const layout = document.getElementById('av-editor-layout');
+  if (!layout || !tool) return;
+  const view = xtractCurrentView === 'video' ? 'video' : 'audio';
+  // Tool not available in this view (e.g. Frame export while on Audio) →
+  // fall back to the shared default.
+  const btn = layout.querySelector(`.av-tool-btn[data-av-tool="${tool}"]`);
+  if (!btn || !(btn.dataset.view || '').includes(view)) tool = 'trim';
+  avToolCurrent[view] = tool;
+  layout.dataset.tool = tool;
+  layout.querySelectorAll('.av-tool-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.avTool === tool));
+  layout.querySelectorAll('.img-editor-side .xtract-card').forEach(c =>
+    c.classList.toggle('tool-active', c.dataset.avTool === tool));
+  // The trim region (drag handles + grab cursor) only makes sense for the
+  // Trim tool — on every other tool it used to stay fully interactive
+  // underneath the cross-tool overlays with no effect on that tool's
+  // operation, which reads as a broken drag & drop. Lock it everywhere else.
+  if (trimEditor?.region) trimEditor.region.setOptions({ drag: tool === 'trim', resize: tool === 'trim' });
+  // The pipeline composite preview is persistent (not tool-gated) — still
+  // repaint on switch in case anything staged changed while a different
+  // tool was open.
+  renderXtractPipelinePreview();
 }
 
 // Populate the unified trim+convert format dropdown based on the active view.
@@ -1523,7 +1812,514 @@ function refreshXtractCards() {
     if (enabled && needsAudio && !audioPresent) enabled = false;
     card.classList.toggle('is-enabled', enabled);
     card.querySelectorAll('button').forEach(b => { b.disabled = !enabled; });
+    // The Tools card bundles Split (needs audio, and is blind to Concat) with
+    // Metadata (needs neither) — a card-level gate can't express "disable
+    // only some of my buttons", so a sub-block carries its own
+    // data-needs-audio/data-block-on-concat and gets this extra, narrower
+    // gate layered on top of the card-level one.
+    card.querySelectorAll('[data-needs-audio], [data-block-on-concat]').forEach(section => {
+      const needsAudio    = section.dataset.needsAudio === 'true';
+      const blockOnConcat = section.dataset.blockOnConcat === 'true' && xtractConcatExtras.length > 0;
+      const subEnabled = enabled && (!needsAudio || audioPresent) && !blockOnConcat;
+      section.querySelectorAll('button').forEach(b => { b.disabled = !subEnabled; });
+      const warning = section.querySelector('.xtract-warning');
+      if (warning) warning.classList.toggle('hidden', !blockOnConcat);
+    });
   });
+}
+
+// ─── IMAGE EDITOR TOOL RAIL (single-window "mini photoshop") ─────────────────
+// The image sub-view is one window: a vertical tool rail, ONE shared preview
+// stage, and the active tool's control panel on the side. setImgTool routes
+// which stage variant is visible (crop overlays / annotate canvas / compare
+// slider / live recolor-rmbg canvas) and which panel shows.
+let imgToolCurrent = 'crop';
+
+// Colors start "unset" (dashed swatch): the recolor/rmbg preview and the save
+// pipeline only consider a tool once its inputs have actually been touched —
+// recolor needs BOTH colors picked; rmbg activates on color pick OR tolerance
+// change (owner-specified trigger rules).
+const imgToolTouched = { recolorFrom: false, recolorTo: false, rmbg: false };
+const imgRecolorActive = () => imgToolTouched.recolorFrom && imgToolTouched.recolorTo;
+const imgRmbgActive    = () => imgToolTouched.rmbg;
+
+function bindImgToolRail() {
+  document.querySelectorAll('#img-tool-rail .img-tool-btn').forEach(btn =>
+    btn.addEventListener('click', () => setImgTool(btn.dataset.imgTool)));
+  // Live recolor/rmbg preview follows its inputs; color pickers also flip
+  // their "touched" flag and drop the unset (dashed) look.
+  const onTouch = (id, fn) => document.getElementById(id)?.addEventListener('input', () => { fn(); scheduleImgLivePreview(); });
+  const markSet = id => document.getElementById(id)?.classList.remove('img-swatch-unset');
+  onTouch('img-recolor-from', () => { imgToolTouched.recolorFrom = true; markSet('img-recolor-from'); });
+  onTouch('img-recolor-to',   () => { imgToolTouched.recolorTo   = true; markSet('img-recolor-to'); });
+  onTouch('img-recolor-tol',  () => { /* re-render only — doesn't activate */ });
+  onTouch('img-rmbg-color',   () => { imgToolTouched.rmbg = true; markSet('img-rmbg-color'); });
+  onTouch('img-rmbg-tol',     () => { imgToolTouched.rmbg = true; markSet('img-rmbg-color'); });
+  // Per-tool resets (crop and fx have their own long-standing buttons).
+  document.getElementById('img-recolor-reset')?.addEventListener('click', resetImageRecolor);
+  document.getElementById('img-rmbg-reset')?.addEventListener('click', resetImageRmbg);
+  document.getElementById('img-resize-reset')?.addEventListener('click', resetImageResize);
+  // Editor globals in the top toolbar + the save modal's own buttons.
+  document.getElementById('xtract-img-reset-btn')?.addEventListener('click', resetAllImageEdits);
+  document.getElementById('xtract-img-save-btn')?.addEventListener('click', doImageSaveAll);
+  document.getElementById('img-save-confirm')?.addEventListener('click', confirmImgSave);
+  document.getElementById('img-save-cancel')?.addEventListener('click', () =>
+    document.getElementById('img-save-modal')?.classList.add('hidden'));
+  document.getElementById('img-save-name')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') confirmImgSave();
+  });
+  document.getElementById('img-save-dir-btn')?.addEventListener('click', async () => {
+    const dir = await window.api.dialog.pickFolder();
+    if (!dir) return;
+    imgSaveDir = dir;
+    const dirLabel = document.getElementById('img-save-dir-label');
+    if (dirLabel) dirLabel.textContent = dir;
+  });
+  // Re-render the composite when the preview image changes size (zoom, window).
+  const img = document.getElementById('img-crop-preview');
+  if (img && typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => scheduleImgLivePreview()).observe(img);
+  }
+  // The zoom bar also drives the annotate canvas (listeners run after the
+  // setCropZoom ones bound in bindImageCropControls, so the zoom is fresh).
+  ['img-crop-zoom-in', 'img-crop-zoom-out', 'img-crop-zoom-fit'].forEach(id =>
+    document.getElementById(id)?.addEventListener('click', applyAnnotateZoom));
+  bindImgColorPickers();
+}
+
+// Eyedropper next to each color input: click the pipette, then click a point
+// on the composite preview to sample that pixel into the input.
+let imgPickTarget = null;
+function bindImgColorPickers() {
+  const clearPicking = () => {
+    imgPickTarget = null;
+    document.body.classList.remove('img-picking');
+    document.querySelectorAll('.img-pick-btn').forEach(b => b.classList.remove('active'));
+  };
+  document.querySelectorAll('.img-pick-btn').forEach(btn =>
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.pick;
+      if (imgPickTarget === target) { clearPicking(); return; }
+      imgPickTarget = target;
+      document.body.classList.add('img-picking');
+      document.querySelectorAll('.img-pick-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.pick === target));
+    }));
+  // Floating swatch that follows the cursor showing the color under it.
+  const pickDot = document.createElement('div');
+  pickDot.className = 'img-pick-cursor hidden';
+  document.body.appendChild(pickDot);
+  const sampleAt = (canvas, e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(canvas.width - 1, Math.round((e.clientX - rect.left) * (canvas.width / rect.width))));
+    const y = Math.max(0, Math.min(canvas.height - 1, Math.round((e.clientY - rect.top) * (canvas.height / rect.height))));
+    const px = canvas.getContext('2d').getImageData(x, y, 1, 1).data;
+    return '#' + [px[0], px[1], px[2]].map(v => v.toString(16).padStart(2, '0')).join('');
+  };
+  const liveCanvas = document.getElementById('img-live-canvas');
+  liveCanvas?.addEventListener('mousemove', e => {
+    if (!imgPickTarget) { pickDot.classList.add('hidden'); return; }
+    try {
+      pickDot.style.background = sampleAt(e.currentTarget, e);
+      pickDot.style.left = (e.clientX + 14) + 'px';
+      pickDot.style.top  = (e.clientY + 14) + 'px';
+      pickDot.classList.remove('hidden');
+    } catch { pickDot.classList.add('hidden'); }
+  });
+  liveCanvas?.addEventListener('mouseleave', () => pickDot.classList.add('hidden'));
+  liveCanvas?.addEventListener('click', e => {
+    if (!imgPickTarget) return;
+    try {
+      const hex = sampleAt(e.currentTarget, e);
+      const input = document.getElementById(imgPickTarget);
+      if (input) {
+        input.value = hex;
+        // Fires the touched-flag + preview refresh listeners.
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    } catch (err) {
+      console.warn('[img-preview] eyedropper failed:', err.message);
+    }
+    pickDot.classList.add('hidden');
+    clearPicking();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { pickDot.classList.add('hidden'); clearPicking(); }
+  });
+}
+
+function resetImageRecolor() {
+  imgToolTouched.recolorFrom = imgToolTouched.recolorTo = false;
+  const from = document.getElementById('img-recolor-from');
+  const to   = document.getElementById('img-recolor-to');
+  if (from) { from.value = '#ff0000'; from.classList.add('img-swatch-unset'); }
+  if (to)   { to.value   = '#00ff00'; to.classList.add('img-swatch-unset'); }
+  const tol = document.getElementById('img-recolor-tol');
+  if (tol) tol.value = '10';
+  const tolV = document.getElementById('img-recolor-tol-v');
+  if (tolV) tolV.textContent = '10%';
+  scheduleImgLivePreview();
+}
+
+function resetImageRmbg() {
+  imgToolTouched.rmbg = false;
+  const c = document.getElementById('img-rmbg-color');
+  if (c) { c.value = '#ffffff'; c.classList.add('img-swatch-unset'); }
+  const tol = document.getElementById('img-rmbg-tol');
+  if (tol) tol.value = '20';
+  const tolV = document.getElementById('img-rmbg-tol-v');
+  if (tolV) tolV.textContent = '20%';
+  scheduleImgLivePreview();
+}
+
+function resetImageResize() {
+  ['img-resize-w', 'img-resize-h', 'img-resize-pct'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  refreshImageResizeApplyEnabled();
+}
+
+// Global reset: undo every pending edit across all tools (toolbar button).
+function resetAllImageEdits() {
+  document.getElementById('img-crop-reset-btn')?.click();   // full-frame rect + zoom 1×
+  resetImageFx();
+  resetImageRecolor();
+  resetImageRmbg();
+  resetImageResize();
+  const annClear = document.getElementById('annotate-clear');
+  if (annClear && !annClear.disabled) annClear.click();
+  scheduleImgLivePreview();
+}
+
+// Collect every pending edit from the tool panels. Returns null when there
+// is nothing to save.
+function collectImageEdits() {
+  if (!imgCropState) return null;
+  const edits = {};
+  // Crop — the X/Y/W/H inputs hold NATURAL pixels; a full-frame rect means
+  // "no crop" and is skipped.
+  const cx = parseInt(document.getElementById('img-crop-x')?.value, 10) || 0;
+  const cy = parseInt(document.getElementById('img-crop-y')?.value, 10) || 0;
+  const cw = parseInt(document.getElementById('img-crop-w')?.value, 10) || 0;
+  const chh = parseInt(document.getElementById('img-crop-h')?.value, 10) || 0;
+  const { naturalW, naturalH } = imgCropState;
+  if (cw > 0 && chh > 0 && !(cx === 0 && cy === 0 && cw >= naturalW && chh >= naturalH)) {
+    edits.crop = { x: cx, y: cy, w: cw, h: chh };
+  }
+  const fx = readImageFx();
+  if (Object.keys(IMG_FX_DEFAULTS).some(k => fx[k] !== IMG_FX_DEFAULTS[k])) edits.fx = fx;
+  if (imgRecolorActive()) {
+    edits.recolor = {
+      from: document.getElementById('img-recolor-from').value,
+      to:   document.getElementById('img-recolor-to').value,
+      tolerance: parseInt(document.getElementById('img-recolor-tol')?.value, 10) || 0
+    };
+  }
+  if (imgRmbgActive()) {
+    edits.rmbg = {
+      color: document.getElementById('img-rmbg-color').value,
+      tolerance: parseInt(document.getElementById('img-rmbg-tol')?.value, 10) || 0
+    };
+  }
+  const rw  = parseInt(document.getElementById('img-resize-w')?.value, 10) || 0;
+  const rh  = parseInt(document.getElementById('img-resize-h')?.value, 10) || 0;
+  const pct = parseInt(document.getElementById('img-resize-pct')?.value, 10) || 0;
+  if (pct > 0) {
+    // % is relative to the (possibly cropped) frame — convert to absolute
+    // bounds here so the pipeline only deals in pixels.
+    const baseW = edits.crop ? edits.crop.w : naturalW;
+    edits.resize = { maxWidth: Math.max(1, Math.round(baseW * pct / 100)), maxHeight: 0 };
+  } else if (rw > 0 || rh > 0) {
+    edits.resize = { maxWidth: rw, maxHeight: rh };
+  }
+  // Annotations count as an edit even with nothing else pending.
+  const hasAnnotations = !!annotateState?.canvas?.getObjects()?.length;
+  if (!Object.keys(edits).length && !hasAnnotations) return null;
+  return edits;
+}
+
+// Global SAVE (toolbar button): opens the name+format modal, then applies the
+// whole stack in ONE main-process sharp pass (images:applyPipeline).
+function doImageSaveAll() {
+  if (!xtractInput || !imgCropState) return;
+  const edits = collectImageEdits();
+  if (!edits) {
+    showToast({
+      title: t('xtract_image_no_edits') || 'Nothing to save',
+      body:  t('xtract_image_no_edits_body') || 'No pending edits — adjust a tool first.',
+      kind:  'warn', ttl: 4000
+    });
+    return;
+  }
+  // Prefill the modal: source folder + name + "-edit"; format pills free
+  // unless transparency forces PNG.
+  imgSaveDir = xtractInput.replace(/[\\/][^\\/]+$/, '');
+  const dirLabel = document.getElementById('img-save-dir-label');
+  if (dirLabel) dirLabel.textContent = imgSaveDir;
+  const base = xtractInput.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+  const nameEl = document.getElementById('img-save-name');
+  if (nameEl) nameEl.value = `${base}-edit`;
+  const pngForced = !!edits.rmbg;
+  document.querySelectorAll('input[name="img-save-format"]').forEach(radio => {
+    const forcedOff = pngForced && radio.value !== 'png';
+    radio.disabled = forcedOff;
+    radio.closest('label')?.classList.toggle('media-format-unavailable', forcedOff);
+    if (pngForced && radio.value === 'png') radio.checked = true;
+    if (!pngForced && radio.value === '') radio.checked = true;
+  });
+  document.getElementById('img-save-png-note')?.classList.toggle('hidden', !pngForced);
+  document.getElementById('img-save-modal')?.classList.remove('hidden');
+  nameEl?.focus();
+}
+
+let imgSaveDir = null; // destination picked in the save modal (default: source dir)
+
+async function confirmImgSave() {
+  const modal = document.getElementById('img-save-modal');
+  if (!xtractInput) { modal?.classList.add('hidden'); return; }
+  const edits = collectImageEdits();
+  if (!edits) { modal?.classList.add('hidden'); return; }
+  const outputName = (document.getElementById('img-save-name')?.value || '').trim();
+  const format = document.querySelector('input[name="img-save-format"]:checked')?.value || '';
+  if (format) edits.format = format;
+  // Annotations become the pipeline's input: the fabric canvas flattened at
+  // natural resolution (PNG bytes). Refresh its background FIRST so the
+  // flatten bakes the CURRENT crop + fx + recolor + rmbg (the user may have
+  // changed them after annotating) — those steps then must NOT run again in
+  // the pipeline; only resize/format still apply.
+  let inputData = null;
+  if (annotateState?.canvas?.getObjects()?.length) {
+    await refreshAnnotateBackground();
+    inputData = getAnnotateFlattenedData();
+    if (inputData) { delete edits.crop; delete edits.fx; delete edits.recolor; delete edits.rmbg; }
+  }
+  modal?.classList.add('hidden');
+  const btn = document.getElementById('xtract-img-save-btn');
+  btn?.classList.add('btn-loading');
+  if (btn) btn.disabled = true;
+  const stepsHint = Object.keys(edits).concat(inputData ? ['annotate'] : []).join(', ');
+  appendLog('xtract-log', `Saving edits (${stepsHint}) for ${xtractInput.split(/[\\/]/).pop()}…`, 'info');
+  const r = await window.api.images.applyPipeline({ input: xtractInput, inputData, edits, outputName, outputDir: imgSaveDir });
+  btn?.classList.remove('btn-loading');
+  if (btn) btn.disabled = !xtractInput;
+  if (r.ok) {
+    appendLog('xtract-log', `✓ Saved: ${r.path}`, 'ok');
+    showToast({ title: t('xtract_image_saved_title') || 'Image saved', body: r.path, kind: 'ok', ttl: 6000, actions: fileToastActions(r.path) });
+    // Load the SAVED result into the editor: the preview shows what was
+    // written and the edit stack restarts clean on top of it.
+    xtractInput = null;
+    destroyImageEditor();
+    loadCapturedFile(r.path);
+  } else {
+    appendLog('xtract-log', `✗ ${r.error}`, 'error');
+    showToast({ title: t('xtract_image_save_err_title') || 'Save failed', body: r.error, kind: 'err', ttl: 6000 });
+  }
+}
+
+function setImgTool(tool) {
+  const layout = document.getElementById('img-editor-layout');
+  if (!layout || !tool) return;
+  imgToolCurrent = tool;
+  layout.dataset.tool = tool;
+  layout.querySelectorAll('.img-tool-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.imgTool === tool));
+  layout.querySelectorAll('.img-editor-side .xtract-card').forEach(c =>
+    c.classList.toggle('tool-active', c.dataset.imgTool === tool));
+  // Stage routing: crop/fx/recolor/rmbg/resize share the main preview stage;
+  // annotate and compare each bring their own canvas.
+  const showMain = ['crop', 'fx', 'recolor', 'rmbg', 'resize'].includes(tool);
+  document.getElementById('img-crop-stage')?.classList.toggle('stage-off', !showMain);
+  document.getElementById('annotate-stage')?.classList.toggle('stage-off', tool !== 'annotate');
+  document.getElementById('img-compare-stage')?.classList.toggle('stage-off', tool !== 'compare');
+  // Crop overlays only while the crop tool is active — no more "unrequested
+  // crop rectangle" sitting on top of every other tool's preview.
+  document.getElementById('img-crop-mask')?.classList.toggle('hidden', tool !== 'crop');
+  document.getElementById('img-crop-rect')?.classList.toggle('hidden', tool !== 'crop');
+  // Compare needs its stage populated (shows the current image alone until
+  // a second image is picked).
+  if (tool === 'compare') refreshImageCompare();
+  // Annotate draws over the CURRENT edit stack, crop included — refresh its
+  // background (which also re-sizes the canvas and re-applies the zoom).
+  if (tool === 'annotate') refreshAnnotateBackground();
+  // Edits are persistent across tools: the recolor/rmbg live canvas (and its
+  // transparency checkerboard) stays on whenever those edits are active,
+  // regardless of which tool panel is open.
+  scheduleImgLivePreview();
+}
+
+// COMPOSITE live preview: on every main-stage tool except Crop, the canvas
+// IS the preview and shows the whole pending edit stack — crop region + FX
+// (via ctx.filter, so they bake into the pixels) + replace-color + remove-bg
+// (per-channel |Δ| <= tolerance%·255, mirroring images:applyPipeline). The
+// Crop tool keeps the real <img> + rect overlay (it needs the full frame).
+let imgLivePreviewTimer = null;
+function scheduleImgLivePreview() {
+  clearTimeout(imgLivePreviewTimer);
+  imgLivePreviewTimer = setTimeout(updateImgLivePreview, 120);
+}
+
+// Current crop region in NATURAL pixels (defaults to the full frame).
+function currentCropRegion() {
+  const st = imgCropState;
+  if (!st) return null;
+  const cx = Math.max(0, parseInt(document.getElementById('img-crop-x')?.value, 10) || 0);
+  const cy = Math.max(0, parseInt(document.getElementById('img-crop-y')?.value, 10) || 0);
+  let cw = parseInt(document.getElementById('img-crop-w')?.value, 10) || 0;
+  let ch = parseInt(document.getElementById('img-crop-h')?.value, 10) || 0;
+  if (cw <= 0 || ch <= 0) { cw = st.naturalW; ch = st.naturalH; }
+  cw = Math.min(cw, st.naturalW - cx);
+  ch = Math.min(ch, st.naturalH - cy);
+  return { cx, cy, cw: Math.max(1, cw), ch: Math.max(1, ch) };
+}
+
+// Objects-only overlay from the annotate canvas (background stripped), or
+// null when there are no annotations. Used to composite annotations into the
+// shared preview of every other tool.
+function getAnnotateOverlayCanvas() {
+  const c = annotateState?.canvas;
+  if (!c || !c.getObjects().length) return null;
+  try {
+    // Strip BOTH the background image AND the background color for the
+    // export — leaving the color in produced an opaque dark canvas that
+    // covered the whole composite instead of overlaying just the objects.
+    const bg = c.backgroundImage;
+    const bgColor = c.backgroundColor;
+    c.backgroundImage = null;
+    c.backgroundColor = '';
+    const el = c.toCanvasElement();
+    c.backgroundImage = bg;
+    c.backgroundColor = bgColor;
+    c.requestRenderAll();
+    return el;
+  } catch (e) {
+    console.warn('[img-preview] annotate overlay failed:', e.message);
+    return null;
+  }
+}
+
+// Render the full edit stack into `canvas`. Order matters and mirrors the
+// save pipeline: crop → replace-color → remove-bg → FX → annotations.
+// Colors are matched on the ORIGINAL pixels (before FX) so an effect applied
+// afterwards doesn't un-match the color the user picked (owner request).
+// Options:
+//   fullFrame          — ignore the crop region (crop tool overlay, annotate bg)
+//   naturalScale       — render 1:1 with the source pixels (annotate bg, exports)
+//   includeAnnotations — draw the annotate objects on top (OFF for the
+//                        annotate background itself, or they'd double up)
+// Returns false when there is nothing to render (no file / no editor state).
+function renderCompositeToCanvas(canvas, { fullFrame = false, naturalScale = false, includeAnnotations = true } = {}) {
+  const img = document.getElementById('img-crop-preview');
+  const st  = imgCropState;
+  if (!canvas || !img || !st || !img.naturalWidth) return false;
+  const region = fullFrame
+    ? { cx: 0, cy: 0, cw: st.naturalW, ch: st.naturalH }
+    : currentCropRegion();
+  if (!region) return false;
+  const scale = naturalScale ? 1 : (st.displayW / st.naturalW) * (st.zoom || 1);
+  const w = canvas.width  = Math.max(1, Math.round(region.cw * scale));
+  const h = canvas.height = Math.max(1, Math.round(region.ch * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(img, region.cx, region.cy, region.cw, region.ch, 0, 0, w, h);
+  const recolorOn = imgRecolorActive();
+  const rmbgOn    = imgRmbgActive();
+  if (recolorOn || rmbgOn) {
+    let frame;
+    try { frame = ctx.getImageData(0, 0, w, h); }
+    catch (e) {
+      console.warn('[img-preview] getImageData failed (tainted canvas?):', e.message);
+      return true; // composite still shows crop+fx, just without pixel ops
+    }
+    const px = frame.data;
+    const hex2rgb = hx => {
+      const s = String(hx || '').replace('#', '');
+      return [parseInt(s.slice(0, 2), 16) || 0, parseInt(s.slice(2, 4), 16) || 0, parseInt(s.slice(4, 6), 16) || 0];
+    };
+    // Same order as the save pipeline: recolor first, then transparency.
+    if (recolorOn) {
+      const [fr, fg, fb] = hex2rgb(document.getElementById('img-recolor-from')?.value);
+      const [tr2, tg, tb] = hex2rgb(document.getElementById('img-recolor-to')?.value);
+      const tolPx = Math.round((parseInt(document.getElementById('img-recolor-tol')?.value, 10) || 0) / 100 * 255);
+      for (let i = 0; i < px.length; i += 4) {
+        if (Math.abs(px[i] - fr) <= tolPx && Math.abs(px[i + 1] - fg) <= tolPx && Math.abs(px[i + 2] - fb) <= tolPx) {
+          px[i] = tr2; px[i + 1] = tg; px[i + 2] = tb;
+        }
+      }
+    }
+    if (rmbgOn) {
+      const [cr, cg, cb] = hex2rgb(document.getElementById('img-rmbg-color')?.value);
+      const tolPx = Math.round((parseInt(document.getElementById('img-rmbg-tol')?.value, 10) || 0) / 100 * 255);
+      for (let i = 0; i < px.length; i += 4) {
+        if (Math.abs(px[i] - cr) <= tolPx && Math.abs(px[i + 1] - cg) <= tolPx && Math.abs(px[i + 2] - cb) <= tolPx) {
+          px[i + 3] = 0;
+        }
+      }
+    }
+    ctx.putImageData(frame, 0, 0);
+  }
+  // FX AFTER the pixel ops (a brightness change must not "un-match" the
+  // replaced color): re-draw the canvas through a filtered pass.
+  const fx = readImageFx();
+  if (Object.keys(IMG_FX_DEFAULTS).some(k => fx[k] !== IMG_FX_DEFAULTS[k])) {
+    const tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    tmp.getContext('2d').drawImage(canvas, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.filter = img.style.filter || 'none';
+    ctx.drawImage(tmp, 0, 0);
+    ctx.filter = 'none';
+  }
+  // Annotations sit on top of everything (they're overlay objects). The
+  // fabric canvas maps annotateState.bgRegion in natural coords — place the
+  // whole overlay at that region within THIS render.
+  if (includeAnnotations) {
+    const overlay = getAnnotateOverlayCanvas();
+    if (overlay) {
+      const r = annotateState?.bgRegion || { cx: 0, cy: 0, cw: st.naturalW, ch: st.naturalH };
+      ctx.drawImage(
+        overlay, 0, 0, overlay.width, overlay.height,
+        (r.cx - region.cx) * scale, (r.cy - region.cy) * scale, r.cw * scale, r.ch * scale
+      );
+    }
+  }
+  return true;
+}
+
+function updateImgLivePreview() {
+  const canvas = document.getElementById('img-live-canvas');
+  const img    = document.getElementById('img-crop-preview');
+  if (!canvas || !img) return;
+  const ready = !!imgCropState && !!img.naturalWidth;
+  const mainTools = ['crop', 'fx', 'recolor', 'rmbg', 'resize'];
+  if (!ready || !mainTools.includes(imgToolCurrent)) {
+    canvas.classList.add('hidden');
+    img.classList.remove('hidden');
+    return;
+  }
+  const cropMode = imgToolCurrent === 'crop';
+  canvas.classList.toggle('checker', imgRmbgActive());
+  // Crop tool: the canvas overlays the visible <img> at FULL frame — the rect
+  // math needs the img's layout, and the canvas' own checker background stops
+  // the original bleeding through transparent pixels. Every other tool: the
+  // canvas IS the stage and the <img> hides (it stays as the pixel source).
+  img.classList.toggle('hidden', !cropMode);
+  if (!renderCompositeToCanvas(canvas, { fullFrame: cropMode })) {
+    canvas.classList.add('hidden');
+    img.classList.remove('hidden');
+    return;
+  }
+  if (cropMode) {
+    canvas.style.position = 'absolute';
+    canvas.style.left   = img.offsetLeft + 'px';
+    canvas.style.top    = img.offsetTop + 'px';
+    canvas.style.width  = img.clientWidth + 'px';
+    canvas.style.height = img.clientHeight + 'px';
+  } else {
+    canvas.style.position = '';
+    canvas.style.left = canvas.style.top = canvas.style.width = canvas.style.height = '';
+  }
+  canvas.classList.remove('hidden');
 }
 
 // ─── OPENSUBTITLES — find .srt online for the loaded video ─────────────────
@@ -1702,6 +2498,479 @@ function localFileURL(p) {
   return 'file:///' + encodeURI(p.replace(/\\/g, '/'));
 }
 
+// ─── XTRACT AUDIO/VIDEO — cross-tool waveform previews (concat + normalize) ──
+// Both tools need peak data for files WaveSurfer hasn't loaded (concat
+// extras) or a loudness estimate for the one it has (normalize) — a small
+// self-contained Web Audio decode, independent of the WaveSurfer instance so
+// it never disturbs the actual trim editor.
+function getSharedAudioContext() {
+  if (!_sharedAudioCtx) _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return _sharedAudioCtx;
+}
+
+// Downsamples a decoded file to `bucketCount` peak-magnitude buckets (same
+// shape as WaveSurfer's own exportPeaks) plus its duration. Rejects (caught
+// by the caller) when the file has no audio track — same failure WaveSurfer
+// itself hits on a silent video.
+async function decodeAudioPeaksForFile(filePath, bucketCount = 200) {
+  const res = await fetch(localFileURL(filePath));
+  const buf = await res.arrayBuffer();
+  const ctx = getSharedAudioContext();
+  const audioBuffer = await ctx.decodeAudioData(buf);
+  const data = audioBuffer.getChannelData(0);
+  const perBucket = Math.max(1, Math.floor(data.length / bucketCount));
+  const peaks = new Float32Array(bucketCount);
+  for (let i = 0; i < bucketCount; i++) {
+    const start = i * perBucket;
+    const end = Math.min(data.length, start + perBucket);
+    let max = 0;
+    for (let j = start; j < end; j++) { const v = Math.abs(data[j]); if (v > max) max = v; }
+    peaks[i] = max;
+  }
+  return { duration: audioBuffer.duration, peaks };
+}
+
+// Duration + peaks for one concat-extra file, cached by path (decoding is
+// the expensive part — a few hundred ms to a couple seconds depending on
+// file length, so this only ever runs once per file per session). Files
+// with no audio track resolve with peaks: null — the preview draws a flat
+// segment for those instead of failing the whole list.
+async function ensureConcatExtraMeta(filePath) {
+  const cached = xtractConcatPeaksCache.get(filePath);
+  if (cached && typeof cached.then !== 'function') return cached;
+  if (cached) return cached; // already pending
+  const pending = (async () => {
+    let duration = 0, peaks = null;
+    try {
+      const decoded = await decodeAudioPeaksForFile(filePath, 200);
+      duration = decoded.duration;
+      peaks = decoded.peaks;
+    } catch {
+      // No audio track (or decode failure) — fall back to ffprobe for at
+      // least the duration, so the segment still occupies the right width.
+      try {
+        const r = await window.api.xtract.probeDuration(filePath);
+        if (r?.ok) duration = r.duration;
+      } catch { /* leave duration 0 — segment collapses, not worth failing over */ }
+    }
+    const resolved = { duration, peaks };
+    xtractConcatPeaksCache.set(filePath, resolved);
+    return resolved;
+  })();
+  xtractConcatPeaksCache.set(filePath, pending);
+  return pending;
+}
+
+// Rebuilds the concat file list (name, duration, remove button) from
+// xtractConcatExtras. Durations show "…" until ensureConcatExtraMeta
+// resolves for that entry.
+// Per-extra staged params (fade-in + trim range), keyed by path — kept
+// separate from xtractConcatExtras (a plain ordered array of paths) so
+// reordering/adding/removing never has to touch this map, only the entry
+// being removed. Lets each queued file get its own fade-in + trim, so
+// Concat can double as a basic "DJ mix" tool: reorder freely in the list
+// (no drag & drop, no waveform interaction — the shared stage always just
+// shows the primary file), tune each track, Save assembles them in order.
+const xtractConcatExtraParams = new Map(); // path -> { fadeIn, start, end }
+function getConcatExtraParams(path) {
+  if (!xtractConcatExtraParams.has(path)) xtractConcatExtraParams.set(path, { fadeIn: 0, start: '', end: '' });
+  return xtractConcatExtraParams.get(path);
+}
+
+function renderConcatExtrasList() {
+  const list = document.getElementById('xtract-concat-list');
+  if (!list) return;
+  if (!xtractConcatExtras.length) {
+    list.innerHTML = `<li class="concat-extra-empty">${esc(t('xtract_concat_none'))}</li>`;
+  } else {
+    list.innerHTML = xtractConcatExtras.map((p, i) => {
+      const meta = xtractConcatPeaksCache.get(p);
+      const ready = meta && typeof meta.then !== 'function';
+      const durTxt = ready && meta.duration ? formatTrimTime(meta.duration) : '…';
+      const params = getConcatExtraParams(p);
+      const isFirst = i === 0, isLast = i === xtractConcatExtras.length - 1;
+      return `<li class="concat-extra-item">
+        <div class="concat-extra-row1">
+          <span class="concat-extra-name" title="${esc(p)}">${i + 1}. ${esc(p.split(/[\\/]/).pop())}</span>
+          <span class="concat-extra-dur">${esc(durTxt)}</span>
+          <button type="button" class="btn-icon concat-extra-up" data-idx="${i}" data-lucide-icon="chevron-up" title="${esc(t('xtract_concat_move_up') || 'Move up')}" ${isFirst ? 'disabled' : ''}></button>
+          <button type="button" class="btn-icon concat-extra-down" data-idx="${i}" data-lucide-icon="chevron-down" title="${esc(t('xtract_concat_move_down') || 'Move down')}" ${isLast ? 'disabled' : ''}></button>
+          <button type="button" class="btn-icon concat-extra-remove" data-idx="${i}" data-lucide-icon="x" title="${esc(t('xtract_concat_remove') || 'Remove')}"></button>
+        </div>
+        <div class="concat-extra-row2">
+          <label class="concat-extra-field">
+            <span data-i18n="xtract_concat_fadein">${esc(t('xtract_concat_fadein') || 'Fade in')}</span>
+            <input type="number" class="search-input plain-input xtract-fade-dur concat-extra-fadein" data-idx="${i}" min="0" max="30" step="0.1" value="${params.fadeIn}" />
+          </label>
+          <label class="concat-extra-field">
+            <span>${esc(t('xtract_start') || 'Start')}</span>
+            <input type="text" class="search-input plain-input xtract-time-narrow concat-extra-start" data-idx="${i}" placeholder="00:00.0" value="${esc(params.start)}" />
+          </label>
+          <label class="concat-extra-field">
+            <span>${esc(t('xtract_end') || 'End')}</span>
+            <input type="text" class="search-input plain-input xtract-time-narrow concat-extra-end" data-idx="${i}" placeholder="${esc(t('xtract_concat_full') || 'full')}" value="${esc(params.end)}" />
+          </label>
+        </div>
+      </li>`;
+    }).join('');
+  }
+  applyLucideIcons(list);
+  if (!list.dataset.delegated) {
+    list.dataset.delegated = '1';
+    list.addEventListener('click', e => {
+      const removeBtn = e.target.closest('.concat-extra-remove');
+      if (removeBtn) {
+        const idx = parseInt(removeBtn.dataset.idx, 10);
+        if (Number.isInteger(idx)) {
+          const [removed] = xtractConcatExtras.splice(idx, 1);
+          if (removed) xtractConcatExtraParams.delete(removed);
+        }
+        renderConcatExtrasList();
+        renderXtractPipelinePreview();
+        refreshXtractCards(); // Split's Concat-block gate depends on the list length
+        return;
+      }
+      const upBtn = e.target.closest('.concat-extra-up');
+      if (upBtn) {
+        const idx = parseInt(upBtn.dataset.idx, 10);
+        if (Number.isInteger(idx) && idx > 0) {
+          [xtractConcatExtras[idx - 1], xtractConcatExtras[idx]] = [xtractConcatExtras[idx], xtractConcatExtras[idx - 1]];
+          renderConcatExtrasList();
+          renderXtractPipelinePreview(); // order changed → combined waveform shape changes too
+        }
+        return;
+      }
+      const downBtn = e.target.closest('.concat-extra-down');
+      if (downBtn) {
+        const idx = parseInt(downBtn.dataset.idx, 10);
+        if (Number.isInteger(idx) && idx < xtractConcatExtras.length - 1) {
+          [xtractConcatExtras[idx], xtractConcatExtras[idx + 1]] = [xtractConcatExtras[idx + 1], xtractConcatExtras[idx]];
+          renderConcatExtrasList();
+          renderXtractPipelinePreview();
+        }
+      }
+    });
+    list.addEventListener('input', e => {
+      const idx = parseInt(e.target.dataset.idx, 10);
+      if (!Number.isInteger(idx) || !xtractConcatExtras[idx]) return;
+      const params = getConcatExtraParams(xtractConcatExtras[idx]);
+      if (e.target.classList.contains('concat-extra-fadein')) params.fadeIn = Math.max(0, parseFloat(e.target.value) || 0);
+      else if (e.target.classList.contains('concat-extra-start')) params.start = e.target.value.trim();
+      else if (e.target.classList.contains('concat-extra-end')) params.end = e.target.value.trim();
+    });
+  }
+}
+
+// RMS loudness estimate (dBFS) from raw samples — NOT true K-weighted/gated
+// EBU R128 LUFS (that needs the full BS.1770 algorithm), but close enough in
+// the same unit family to drive a live "roughly this much louder/quieter"
+// preview (visual AND audible — see composeXtractPreviewVolume). The actual
+// Save always applies real loudnorm.
+function computeRmsDb(channelData) {
+  let sumSq = 0;
+  for (let i = 0; i < channelData.length; i++) sumSq += channelData[i] * channelData[i];
+  const rms = Math.sqrt(sumSq / (channelData.length || 1));
+  return rms > 0 ? 20 * Math.log10(rms) : -70;
+}
+
+
+// Captures the TRUE original peaks/rms/duration exactly once per file —
+// called eagerly right after decode (see the 'decode' handler below), before
+// anything can ever mutate the wave, so every later rescale always starts
+// from the real shape instead of compounding on top of an already-scaled
+// one. Everything that needs to know "what did this file originally look
+// like" reads from this cache instead of re-touching trimEditor.ws directly.
+function ensureOriginalWaveCache() {
+  if (!trimEditor?.ws) return null;
+  if (normalizePeaksCache && normalizePeaksCache.path === xtractInput) return normalizePeaksCache;
+  try {
+    const peaks = trimEditor.ws.exportPeaks({ channels: 1, maxLength: 500 })[0];
+    const decoded = trimEditor.ws.getDecodedData();
+    const rmsDb = decoded ? computeRmsDb(decoded.getChannelData(0)) : -20;
+    const duration = trimEditor.ws.getDuration();
+    normalizePeaksCache = { path: xtractInput, peaks, rmsDb, duration };
+    return normalizePeaksCache;
+  } catch { return null; }
+}
+
+// Current normalize gain multiplier from the staged target vs. the primary
+// file's measured RMS — 1 (no-op) when normalize isn't enabled.
+function xtractNormalizeScale() {
+  const on = document.getElementById('xtract-normalize-toggle')?.classList.contains('active');
+  const cache = ensureOriginalWaveCache();
+  if (!on || !cache) return 1;
+  const target = parseFloat(document.getElementById('xtract-normalize-target')?.value);
+  const targetDb = Number.isFinite(target) ? Math.max(-40, Math.min(-5, target)) : -14;
+  return Math.pow(10, (targetDb - cache.rmsDb) / 20);
+}
+
+// Directly mutates the REAL WaveSurfer-rendered waveform in place — via the
+// public setOptions({peaks, duration}) API, which internally swaps
+// decodedData — instead of drawing a translucent copy on top of it. This is
+// what "change the actual waveform, don't draw a second one over it" means:
+// same canvas, same colour, just a different shape while
+// normalize/audiotrack-remove/replace/concat is staged, and back to the true
+// original the moment they're turned off. setOptions() alone does NOT
+// repaint the canvas though (only load()/loadBlob() call renderer.render()
+// internally) — see forceWaveRepaint() above, called after every setOptions
+// here.
+// getDuration() always reads the bound media element's real duration and
+// ignores the `duration` passed to setOptions, so Concat's extra track(s)
+// show up as a reshaped/blended tail within the PRIMARY file's own width,
+// never as a genuinely wider waveform — actually stretching the display
+// would need swapping in a real (concatenated) media source, which for
+// video (bound via `media:`) would desync the cursor from actual
+// currentTime. The Concat list itself (with each item's own duration) is
+// the source of truth for what's queued; the waveform is only a rough
+// preview of the resulting shape.
+// Reads a CSS custom property from :root — used to fetch the theme's accent
+// colours on demand rather than hardcoding hex values that would drift from
+// the actual theme (light/dark, future palette tweaks).
+function xtractCssVar(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+// Resamples the whole virtual timeline (primary, trim-clipped, + every
+// concat extra in its staged order) into a fixed `bucketCount`-length peaks
+// array — this is what makes the real waveform visibly reshape the moment a
+// file is queued in Concat's list, without any separate overlay or drag
+// interaction on the canvas itself (the width itself stays pinned to the
+// primary file's own duration — see applyXtractWaveMutation). A segment
+// whose own peaks haven't finished decoding yet renders as a flat
+// (silent-looking) stretch rather than blocking the redraw — it fills in on
+// the next repaint once ensureConcatExtraMeta resolves.
+function buildCombinedTimelinePeaks(bucketCount) {
+  const { segments, totalDur } = computeXtractTimeline();
+  if (totalDur <= 0 || bucketCount <= 0) return null;
+  const combined = new Array(bucketCount).fill(0);
+  let destPos = 0;
+  for (const seg of segments) {
+    const segBucketsF = (seg.duration / totalDur) * bucketCount;
+    const segBuckets = Math.max(0, Math.round(segBucketsF));
+    const srcPeaks = seg.peaks;
+    if (srcPeaks && srcPeaks.length && segBuckets > 0) {
+      for (let i = 0; i < segBuckets; i++) {
+        const destIdx = Math.min(bucketCount - 1, Math.round(destPos) + i);
+        const srcIdx = Math.min(srcPeaks.length - 1, Math.floor((i / segBuckets) * srcPeaks.length));
+        combined[destIdx] = srcPeaks[srcIdx] || 0;
+      }
+    }
+    destPos += segBucketsF;
+  }
+  return combined;
+}
+
+// WaveSurfer v7's setOptions({peaks, duration}) rebuilds ws.decodedData (see
+// its source) but never repaints the canvas from it — only load()/loadBlob()
+// call renderer.render() internally, and calling those would reset playback
+// and (for video, media-bound) desync the cursor from the real element. This
+// reaches past the public API to force just the redraw, which is a pure
+// canvas repaint with no effect on playback/media state. Without it, every
+// setOptions() call above silently updates the data (visible via
+// exportPeaks()) while the on-screen waveform never changes — which is why
+// Concat's combined preview and Normalize's target-change preview both
+// looked frozen even though the underlying pipeline state was correct.
+function forceWaveRepaint(ws) {
+  try { ws?.renderer?.render?.(ws.decodedData); } catch {}
+}
+
+function applyXtractWaveMutation() {
+  if (!trimEditor?.ws) return;
+  const cache = ensureOriginalWaveCache();
+  if (!cache || !cache.peaks || !cache.peaks.length) return;
+  const mode = xtractCurrentView === 'video' ? xtractAudiotrackMode() : null;
+  const normalizeOn = document.getElementById('xtract-normalize-toggle')?.classList.contains('active');
+  const scale = xtractNormalizeScale();
+  const accent = xtractCssVar('--accent', '#c8f542');
+
+  // Two signals for every mutated state, not just one: the actual reshaped
+  // peaks (may be a subtle difference if the file was already near the
+  // target loudness) AND a colour change (impossible to miss regardless of
+  // how similar the shape ends up looking) — same setOptions call, both
+  // applied together. WaveSurfer is created with `normalize: true`
+  // (stretches whatever peaks it's given so the loudest sample always
+  // touches full height), which silently cancels out a pure shape rescale;
+  // disabling it here is what makes the reshape actually visible at all.
+  try {
+    if (mode === 'remove') {
+      const flat = cache.peaks.map(() => 0.001); // near-silent, not literally 0
+      trimEditor.ws.setOptions({ peaks: [flat], duration: cache.duration, normalize: false, waveColor: xtractCssVar('--danger', '#ff5a5a'), progressColor: xtractCssVar('--danger', '#ff5a5a') });
+      forceWaveRepaint(trimEditor.ws);
+      return;
+    }
+    if (mode === 'replace' && xtractReplAudioPath) {
+      const rc = xtractAudiotrackPeaksCache.get(xtractReplAudioPath);
+      if (!rc) {
+        const p = xtractReplAudioPath;
+        const pending = decodeAudioPeaksForFile(p, 200)
+          .catch(() => ({ duration: 0, peaks: null }))
+          .then(resolved => {
+            xtractAudiotrackPeaksCache.set(p, resolved);
+            if (xtractReplAudioPath === p) applyXtractWaveMutation();
+          });
+        xtractAudiotrackPeaksCache.set(p, pending);
+        return; // repainted once the decode above resolves
+      }
+      if (typeof rc.then === 'function' || !rc.peaks) return; // still decoding, or no audio track
+      // Resample the replacement's own peaks onto the PRIMARY's bucket
+      // count/duration (ffmpeg runs -shortest, so a replacement longer than
+      // the primary is truncated; shorter leaves the tail silent — same
+      // rule the Save pipeline applies).
+      const bucketCount = cache.peaks.length;
+      const usedFrac = cache.duration > 0 ? Math.min(1, (rc.duration || cache.duration) / cache.duration) : 1;
+      const filledBuckets = Math.max(1, Math.round(bucketCount * usedFrac));
+      const resampled = new Array(bucketCount).fill(0);
+      for (let i = 0; i < filledBuckets; i++) {
+        const srcIdx = Math.min(rc.peaks.length - 1, Math.floor((i / filledBuckets) * rc.peaks.length));
+        resampled[i] = (rc.peaks[srcIdx] || 0) * scale;
+      }
+      trimEditor.ws.setOptions({ peaks: [resampled], duration: cache.duration, normalize: false, waveColor: xtractCssVar('--warning', '#ffb700'), progressColor: xtractCssVar('--warning', '#ffb700') });
+      forceWaveRepaint(trimEditor.ws);
+      return;
+    }
+    // Plain case: original shape, gain-scaled if normalize is on (or
+    // exactly the original if it's off — this is also how a
+    // normalize/remove/replace toggle turned back OFF reverts to the true
+    // wave, auto-normalize AND colour included).
+    // Base shape: the primary alone, or — the moment anything is queued in
+    // Concat's list — the whole assembled timeline resampled onto the same
+    // bucket count, so the waveform visibly grows/changes as tracks are
+    // added/reordered/removed there, with no drag interaction on the canvas
+    // itself. Falls back to the primary alone if the combine ever fails
+    // (e.g. mid-decode of a freshly-added extra).
+    const hasConcat = xtractConcatExtras.length > 0;
+    let basePeaks = cache.peaks, baseDuration = cache.duration;
+    if (hasConcat) {
+      const combined = buildCombinedTimelinePeaks(cache.peaks.length);
+      if (combined) {
+        basePeaks = combined;
+        const { totalDur } = computeXtractTimeline();
+        baseDuration = totalDur > 0 ? totalDur : cache.duration;
+      }
+    }
+    const peaks = normalizeOn ? basePeaks.map(v => Math.max(-1, Math.min(1, v * scale))) : basePeaks;
+    const col = normalizeOn ? xtractCssVar('--accent2', '#3dffa0') : accent;
+    trimEditor.ws.setOptions({ peaks: [peaks], duration: baseDuration, normalize: !normalizeOn, waveColor: col, progressColor: col });
+    forceWaveRepaint(trimEditor.ws);
+  } catch (e) {
+    appendLog('xtract-log', `⚠ Waveform preview update failed: ${e.message}`, 'warn');
+  }
+}
+
+// Clears the staged audio-track replacement when a new primary file loads —
+// a replacement picked for a previous video is meaningless (and confusing)
+// once the video underneath it has changed.
+function resetAudiotrackReplacement() {
+  xtractReplAudioPath = null;
+  document.getElementById('xtract-mute-btn')?.classList.remove('active');
+  document.getElementById('xtract-mute-btn')?.setAttribute('aria-pressed', 'false');
+  const info = document.getElementById('xtract-replaudio-info');
+  if (info) info.textContent = t('xtract_audiotrack_none') || 'No audio selected';
+  destroyReplacementAudioSync();
+}
+
+// Turns the normalize toggle off without touching the target field value —
+// used both by resetAvPipeline() and every "a new primary file just loaded"
+// site, since an enabled-normalize from the PREVIOUS file is meaningless
+// (and confusing) carried over onto a new one.
+function resetXtractNormalizeToggle() {
+  const btn = document.getElementById('xtract-normalize-toggle');
+  if (btn?.classList.contains('active')) {
+    btn.classList.remove('active');
+    btn.setAttribute('aria-pressed', 'false');
+  }
+}
+
+function xtractAudiotrackMode() {
+  if (xtractReplAudioPath) return 'replace';
+  if (document.getElementById('xtract-mute-btn')?.classList.contains('active')) return 'remove';
+  return null;
+}
+
+// Computes the current virtual timeline: primary file clipped to the staged
+// trim region (or the full file when untouched) + every concat extra, in
+// order. This is the single source of truth both the composite waveform and
+// the video segment-swap playback engine key off — trim only ever clips the
+// PRIMARY segment (concat extras play in full), matching what Save produces
+// (concat assembles first, trim cuts the assembled-from-primary boundary
+// only in the sense that ffmpeg -ss/-to run on the concat step's output cuts
+// wherever that falls — for the common case of trimming before adding
+// extras, that's exactly the primary's own range).
+function computeXtractTimeline() {
+  const dur = trimEditor?.ws?.getDuration?.() || 0;
+  const region = trimEditor?.region;
+  const trimStart = region ? Math.max(0, region.start) : 0;
+  const trimEnd   = region ? Math.min(dur, region.end)  : dur;
+  const primaryDur = Math.max(0.01, trimEnd - trimStart);
+
+  // Primary peaks MUST come from the pristine cache, never live off
+  // trimEditor.ws — the live waveform is whatever the LAST applyXtractWaveMutation
+  // call painted (already normalize-scaled once normalize is on), so reading it
+  // here fed already-scaled data back into the next scale pass, compounding the
+  // gain a little more on every re-render (every keystroke on the target field,
+  // every concat list change) until it pinned at full clipping and stayed there
+  // regardless of the target value — reported as "normalize preview looks stuck
+  // /off by one step" once Concat had extras queued.
+  const cache = ensureOriginalWaveCache();
+  let primaryPeaksFull = cache ? cache.peaks : null;
+  let primaryPeaks = primaryPeaksFull;
+  if (primaryPeaksFull && primaryPeaksFull.length && dur > 0) {
+    const n = primaryPeaksFull.length;
+    const i0 = Math.max(0, Math.floor((trimStart / dur) * n));
+    const i1 = Math.min(n, Math.ceil((trimEnd / dur) * n));
+    primaryPeaks = primaryPeaksFull.slice(i0, Math.max(i0 + 1, i1));
+  }
+
+  const segments = [{ path: xtractInput, duration: primaryDur, peaks: primaryPeaks, isPrimary: true, trimStart, trimEnd }];
+  for (const p of xtractConcatExtras) {
+    const meta = xtractConcatPeaksCache.get(p);
+    const ready = meta && typeof meta.then !== 'function';
+    segments.push({ path: p, duration: ready ? (meta.duration || 0) : 0, peaks: ready ? meta.peaks : null, isPrimary: false, trimStart: 0, trimEnd: ready ? meta.duration : 0 });
+  }
+  const totalDur = segments.reduce((s, x) => s + (x.duration || 0), 0) || primaryDur;
+  return { segments, totalDur };
+}
+
+// THE persistent pipeline state pass — drives the Reset/Save toolbar state
+// and mutates the REAL WaveSurfer waveform in place (applyXtractWaveMutation
+// — same canvas, same element, no separate overlay) for every staged
+// change: Normalize, Audiotrack remove/replace, AND Concat (the moment a
+// file is queued in the list below the card, the waveform grows to show the
+// whole assembled timeline — reordering/removing there updates it live too;
+// see buildCombinedTimelinePeaks). There's no drag/click interaction on the
+// canvas itself for any of this — ordering and per-track fade-in/trim are
+// entirely in the list (renderConcatExtrasList). Trim itself needs no
+// drawing either — the WaveSurfer region plugin already highlights the kept
+// range live, natively.
+function renderXtractPipelinePreview() {
+  if (!trimEditor || !trimEditor.ws) return;
+  const dur = trimEditor.ws.getDuration() || 0;
+  if (dur <= 0) return;
+
+  const region = trimEditor.region;
+  const { fadeIn, fadeOut } = readFadeParams();
+  // Audiotrack only applies to video (its card is video-only) — but
+  // xtractReplAudioPath / the mute toggle's .active class are plain globals,
+  // not reset on a view switch. Gate on the current view so leftover state
+  // from testing Video doesn't affect Audio.
+  const mode = xtractCurrentView === 'video' ? xtractAudiotrackMode() : null;
+  const normalizeOn = document.getElementById('xtract-normalize-toggle')?.classList.contains('active');
+  const dirty = xtractConcatExtras.length > 0
+    || (region && (region.start > 0.01 || region.end < dur - 0.01))
+    || fadeIn > 0 || fadeOut > 0
+    || !!mode
+    || !!normalizeOn;
+  updateAvPipelineToolbarState(dirty);
+  applyXtractWaveMutation();
+}
+
+let _xtractPipelinePreviewTimer = null;
+function scheduleXtractPipelinePreview() {
+  clearTimeout(_xtractPipelinePreviewTimer);
+  _xtractPipelinePreviewTimer = setTimeout(renderXtractPipelinePreview, 120);
+}
+
 async function loadTrimEditorLibs() {
   if (trimEditorLibs) return trimEditorLibs;
   const [wsMod, rgMod] = await Promise.all([
@@ -1847,8 +3116,17 @@ async function ensureTrimEditor(filePath) {
     });
     syncTimeInputsFromRegion(region);
     trimEditor.region = region;
+    // Region is created draggable by default (WaveSurfer requirement) — lock
+    // it down immediately unless Trim is the tool actually showing, same
+    // rule setAvTool enforces on every subsequent switch.
+    const curTool = avToolCurrent[xtractCurrentView === 'video' ? 'video' : 'audio'] || 'trim';
+    region.setOptions({ drag: curTool === 'trim', resize: curTool === 'trim' });
     // Now that the region exists, paint the initial fade overlay.
     renderFadeOverlay();
+    // The pipeline composite depends on the primary file's peaks (exportPeaks
+    // only works once decoded) — repaint now.
+    normalizePeaksCache = null; // new decode → stale cache, recompute lazily
+    renderXtractPipelinePreview();
   });
 
   // Error + timeout safety net. The waveform "stuck on Loading…" symptom
@@ -2006,9 +3284,9 @@ async function ensureTrimEditor(filePath) {
   // Re-render the visual overlay whenever the region OR the fade controls
   // change. The handlers are added once per ensureTrimEditor call; on the
   // next destroy/re-create cycle they're discarded along with `regions`.
-  regions.on('region-updated', () => renderFadeOverlay());
+  regions.on('region-updated', () => { renderFadeOverlay(); renderXtractPipelinePreview(); });
   ['trim-fadein-toggle','trim-fadeout-toggle','trim-fadein-dur','trim-fadeout-dur']
-    .forEach(id => document.getElementById(id)?.addEventListener('input', renderFadeOverlay));
+    .forEach(id => document.getElementById(id)?.addEventListener('input', () => { renderFadeOverlay(); scheduleXtractPipelinePreview(); }));
   // Initial draw — region may not exist yet (decode fires later), so the
   // function bails gracefully and is re-invoked from the decode handler
   // above via the region-updated event when the initial region is added.
@@ -2110,6 +3388,12 @@ function startFadePreview() {
     } else if (fadeOut > 0 && t > region.end - fadeOut) {
       v = Math.max(0, Math.min(1, (region.end - t) / fadeOut));
     }
+    // Compose the normalize gain on top of the fade envelope — same .volume
+    // knob, multiplicatively, so both preview live together. .volume is
+    // capped at 1, so a BOOST target on a quiet file can't be heard louder
+    // in preview (only the real ffmpeg loudnorm at Save can amplify); a
+    // reduction (the common case — taming an over-loud file) previews fine.
+    v = Math.max(0, Math.min(1, v * xtractNormalizeScale()));
     if (Math.abs(media.volume - v) > 0.001) media.volume = v;
     _fadePreviewRAF = requestAnimationFrame(tick);
   };
@@ -2124,11 +3408,55 @@ function resetMediaVolume() {
   if (media) media.volume = 1;
 }
 
+// ─── Audiotrack "replace" live preview: sync a hidden <audio> element ──────
+// Mutes the real media's own audio and plays the picked replacement file in
+// lockstep (play/pause/seek), so previewing sounds like the actual saved
+// result instead of showing a silent swap. Clipped to the current timeline
+// duration on every tick — mirrors ffmpeg's -shortest at Save time, and is
+// the concrete answer to "a replacement must always fit within the current
+// timeline's length".
+let _replAudioEl = null;
+function ensureReplacementAudioSync() {
+  destroyReplacementAudioSync();
+  if (!xtractReplAudioPath) return;
+  const media = getTrimMediaElement();
+  if (!media) return;
+  const audio = new Audio(localFileURL(xtractReplAudioPath));
+  audio.preload = 'auto';
+  const onPlay  = () => { audio.currentTime = media.currentTime; audio.play().catch(() => {}); };
+  const onPause = () => audio.pause();
+  const onSeek  = () => { audio.currentTime = media.currentTime; };
+  const onTimeUpdate = () => {
+    const { totalDur } = computeXtractTimeline();
+    if (totalDur > 0 && media.currentTime >= totalDur - 0.05) audio.pause();
+  };
+  media.addEventListener('play',       onPlay);
+  media.addEventListener('pause',      onPause);
+  media.addEventListener('seeked',     onSeek);
+  media.addEventListener('timeupdate', onTimeUpdate);
+  media.muted = true;
+  audio._cleanup = () => {
+    media.removeEventListener('play',       onPlay);
+    media.removeEventListener('pause',      onPause);
+    media.removeEventListener('seeked',     onSeek);
+    media.removeEventListener('timeupdate', onTimeUpdate);
+    media.muted = false;
+  };
+  _replAudioEl = audio;
+}
+function destroyReplacementAudioSync() {
+  if (!_replAudioEl) return;
+  try { _replAudioEl.pause(); } catch {}
+  try { _replAudioEl._cleanup?.(); } catch {}
+  _replAudioEl = null;
+}
+
 function destroyTrimEditorCleanup() {
   // Auxiliary cleanup the trim destroy must do — stop the fade RAF and
   // reset volume so the next file doesn't inherit a faded-low state.
   stopFadePreview();
   resetMediaVolume();
+  destroyReplacementAudioSync();
   const inPath  = document.getElementById('trim-fade-in-path');
   const outPath = document.getElementById('trim-fade-out-path');
   if (inPath)  inPath.setAttribute('d', '');
@@ -2226,24 +3554,16 @@ function ensureImageEditor(filePath) {
       filePath, naturalW, naturalH, displayW, displayH,
       aspect: null,  // null = free
       zoom: 1,       // 1 = fit-to-stage default; 0.25..4 via the zoom toolbar
-      // Initial crop: 80% centered. Common UX expectation — gives the
-      // user a visible rect they can shrink rather than starting at zero.
-      rect: {
-        x: Math.round(displayW * 0.10),
-        y: Math.round(displayH * 0.10),
-        w: Math.round(displayW * 0.80),
-        h: Math.round(displayH * 0.80)
-      },
+      // Initial crop: the FULL image. A pre-shrunk rect on every load read
+      // as an unrequested crop (owner feedback); full-frame means "no crop
+      // yet" while still letting Apply double as a format converter.
+      rect: { x: 0, y: 0, w: displayW, h: displayH },
       drag: null
     };
     setCropZoom(1);  // resets any prior zoom inline styles from previous file
     updateCropVisuals();
     updateCropInputs();
-    document.getElementById('img-crop-apply-btn').disabled = false;
-    const _recolorBtn = document.getElementById('img-recolor-apply');
-    if (_recolorBtn) _recolorBtn.disabled = false;
-    const _rmbgBtn = document.getElementById('img-rmbg-apply');
-    if (_rmbgBtn) _rmbgBtn.disabled = false;
+    scheduleImgLivePreview(); // refresh recolor/rmbg live preview for the new file
     refreshImageResizeApplyEnabled();
     refreshSplitButtons();
     // Mount the Annotate (fabric) canvas with this image as background. Lazy
@@ -2281,9 +3601,14 @@ function destroyImageEditor() {
   // Tear down the fabric.js annotation canvas — its background image must
   // be released so the next loaded file doesn't bleed the previous one.
   unmountAnnotateCanvas();
-  const apply = document.getElementById('img-crop-apply-btn');
-  if (apply) apply.disabled = true;
   refreshImageResizeApplyEnabled();   // disables Resize too when no file loaded
+  // New file (or cleared file) starts from a clean edit stack.
+  resetImageRecolor();
+  resetImageRmbg();
+  resetImageResize();
+  const liveCanvas = document.getElementById('img-live-canvas');
+  if (liveCanvas) { liveCanvas.classList.add('hidden'); liveCanvas.classList.remove('checker'); }
+  document.getElementById('img-crop-preview')?.classList.remove('hidden');
   const natInfo = document.getElementById('img-crop-natural-info');
   if (natInfo) natInfo.textContent = '';
   // Reset all FX controls — fresh file should start from neutral defaults.
@@ -2372,6 +3697,8 @@ function updateCropInputs() {
   if (hEl) hEl.max = String(naturalH);
   if (xEl) xEl.max = String(naturalW - 1);
   if (yEl) yEl.max = String(naturalH - 1);
+  // The crop region feeds the composite preview on the other tools.
+  scheduleImgLivePreview();
 }
 
 function clampCropRect() {
@@ -2400,6 +3727,10 @@ function bindImageCropInteractions() {
   // events use clientX/Y, converted to wrap-local via getBoundingClientRect.
   wrap.addEventListener('mousedown', (e) => {
     if (!imgCropState) return;
+    // Only the Crop tool owns rect gestures — on the other tools the canvas
+    // fills the wrap and its clicks (e.g. the eyedropper) bubble up here,
+    // which would silently redraw the crop rect.
+    if (imgToolCurrent !== 'crop') return;
     const box = wrap.getBoundingClientRect();
     // Convert viewport px to image display-px by dividing by the current
     // zoom — getBoundingClientRect already reports scaled dims, so the
@@ -2529,12 +3860,7 @@ function bindImageCropControls() {
     document.querySelectorAll('.img-aspect-btn').forEach(b => b.classList.remove('active'));
     document.querySelector('.img-aspect-btn[data-aspect="free"]')?.classList.add('active');
     const { displayW, displayH } = imgCropState;
-    imgCropState.rect = {
-      x: Math.round(displayW * 0.10),
-      y: Math.round(displayH * 0.10),
-      w: Math.round(displayW * 0.80),
-      h: Math.round(displayH * 0.80)
-    };
+    imgCropState.rect = { x: 0, y: 0, w: displayW, h: displayH }; // full frame = "no crop"
     clampCropRect();
     setCropZoom(1);     // also bring the preview back to 1× — Reset = full reset
     updateCropVisuals();
@@ -2647,6 +3973,9 @@ function updateImageFxPreview() {
     fx.invert    ? 'invert(1)'    : 'invert(0)'
   ];
   img.style.filter = filters.join(' ');
+  // The composite canvas bakes the same filter string via ctx.filter — just
+  // ask for a re-render.
+  scheduleImgLivePreview();
   // Sync the value labels next to each slider.
   document.getElementById('img-fx-brightness-v').textContent = `${fx.brightness}%`;
   document.getElementById('img-fx-contrast-v').textContent   = `${fx.contrast}%`;
@@ -2654,9 +3983,6 @@ function updateImageFxPreview() {
   document.getElementById('img-fx-hue-v').textContent        = `${fx.hue}°`;
   document.getElementById('img-fx-blur-v').textContent       = fx.blur.toFixed(1);
   document.getElementById('img-fx-sharpen-v').textContent    = fx.sharpen.toFixed(1);
-  // Enable Apply only when at least one effect diverges from default.
-  const dirty = Object.keys(IMG_FX_DEFAULTS).some(k => fx[k] !== IMG_FX_DEFAULTS[k]);
-  document.getElementById('img-fx-apply').disabled = !dirty || !xtractInput;
 }
 
 function resetImageFx() {
@@ -3022,6 +4348,8 @@ function bindTrimEditorControls() {
         dur.disabled = !on;
         dur.classList.toggle('is-off', !on);
       }
+      renderFadeOverlay();
+      renderXtractPipelinePreview();
     });
   }
 }
@@ -3230,7 +4558,16 @@ function switchTab(tabId, navItem = null) {
   // Highlight the specific nav item the user clicked (multiple items may share
   // the same data-tab — e.g. Xtract > Audio and Xtract > Video both point to
   // tab-xtract). Fallback to first matching item if called programmatically.
-  (navItem || document.querySelector(`.nav-item[data-tab="${tabId}"]`))?.classList.add('active');
+  const activeItem = navItem || document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+  activeItem?.classList.add('active');
+  // Programmatic switches (drag&drop routing, deep links) can land on an item
+  // whose accordion group is collapsed — the highlight would be invisible.
+  // Mirror the accordion behaviour: open this group, close the others.
+  const activeGroup = activeItem?.closest('.nav-group');
+  if (activeGroup?.classList.contains('collapsed')) {
+    document.querySelectorAll('.nav-scroll .nav-group').forEach(g =>
+      g.classList.toggle('collapsed', g !== activeGroup));
+  }
   const el = document.getElementById(`tab-${tabId}`);
   if (el) { el.classList.remove('hidden'); el.classList.add('active'); }
   // Sidebar logo doubles as the Home link — flip it to its "active" treatment
@@ -3848,18 +5185,40 @@ function bindGlobalDragDrop() {
     dragCounter = Math.max(0, dragCounter - 1);
     if (dragCounter === 0) document.body.classList.remove('dnd-active');
   });
-  document.addEventListener('drop', e => {
+  // OS "Open with": files opened from Explorer/Finder/file managers arrive
+  // from main and route exactly like a drop.
+  window.api.system.onOpenFiles?.(paths => {
+    if (Array.isArray(paths) && paths.length) handleDroppedFiles(paths);
+  });
+  document.addEventListener('drop', async e => {
     e.preventDefault();
     dragCounter = 0;
     document.body.classList.remove('dnd-active');
     const files = [...(e.dataTransfer?.files || [])];
+    // Read the text payloads NOW — dataTransfer is cleared as soon as the
+    // handler yields to an await, so a late getData() returns ''.
+    const text = (e.dataTransfer?.getData('text/plain') || e.dataTransfer?.getData('text/uri-list') || '').trim();
     if (files.length) {
       // Electron 32+ deprecated File.path; use webUtils via preload.
       const paths = files.map(f => window.api.file.pathForDropped(f)).filter(Boolean);
-      if (paths.length) handleDroppedFiles(paths);
-      return;
+      if (paths.length) { handleDroppedFiles(paths); return; }
+      // No disk path → cross-app drag (typically an image dragged out of a
+      // browser). The File usually still carries its content: persist it to
+      // userData/dropped and route it like a local file.
+      const saved = [];
+      for (const f of files) {
+        try {
+          const data = new Uint8Array(await f.arrayBuffer());
+          if (!data.byteLength) continue;
+          const r = await window.api.file.saveDroppedBuffer({ name: f.name, data });
+          if (r?.ok && r.path) saved.push(r.path);
+        } catch { /* content not readable — fall through to the URL below */ }
+      }
+      if (saved.length) { handleDroppedFiles(saved); return; }
+      // Content-less File + a URL payload → download it (image check on the
+      // response mime; non-images fall back to the Media downloader).
+      if (/^https?:\/\//i.test(text)) { importDroppedUrl(text, { fallbackToMedia: true }); return; }
     }
-    const text = (e.dataTransfer?.getData('text/plain') || e.dataTransfer?.getData('text/uri-list') || '').trim();
     // Skip internal drags — queue reorder, playlist reorder, image list etc.
     // serialize their item-id / index as text/plain (a small integer). Treat
     // pure-integer or single-letter payloads as in-app drags and stay silent
@@ -3940,16 +5299,38 @@ function handleDroppedText(text) {
     || /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/.*)?$/i.test(text);  // bare domain.tld
   if (looksLikeUrl) {
     const fullUrl = /^https?:\/\//i.test(text) ? text : 'https://' + text;
-    switchTab('media');
-    const urlInput = document.getElementById('media-url');
-    if (urlInput) {
-      urlInput.value = fullUrl;
-      urlInput.dispatchEvent(new Event('input', { bubbles: true }));
-      showToast({ title: t('dnd_loaded_title') || 'Loaded', body: 'URL pasted into Media downloader', kind: 'ok', ttl: 3500 });
+    // Direct image URL → import into the image editor instead of the downloader.
+    if (/\.(jpg|jpeg|png|webp|avif|gif|bmp|svg|tiff?)([?#]|$)/i.test(fullUrl)) {
+      importDroppedUrl(fullUrl, { fallbackToMedia: true });
+      return;
     }
+    routeUrlToMedia(fullUrl);
     return;
   }
   showToast({ title: t('dnd_unsupported') || 'Unsupported drop', body: text.slice(0, 80), kind: 'warn', ttl: 4000 });
+}
+
+function routeUrlToMedia(fullUrl) {
+  switchTab('media');
+  const urlInput = document.getElementById('media-url');
+  if (urlInput) {
+    urlInput.value = fullUrl;
+    urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+    showToast({ title: t('dnd_loaded_title') || 'Loaded', body: 'URL pasted into Media downloader', kind: 'ok', ttl: 3500 });
+  }
+}
+
+// Download a dropped URL in main (Electron net → OS certs/proxy) and, when it
+// turns out to be an image, open it in the image editor. Anything else falls
+// back to the Media downloader when the caller allows it.
+async function importDroppedUrl(url, { fallbackToMedia = false } = {}) {
+  const r = await window.api.file.importUrl(url);
+  if (r?.ok && r.path && /^image\//i.test(r.mime || '')) {
+    handleDroppedFiles([r.path]);
+    return;
+  }
+  if (fallbackToMedia) { routeUrlToMedia(url); return; }
+  showToast({ title: t('dnd_unsupported') || 'Import failed', body: r?.error || url.slice(0, 80), kind: 'err', ttl: 5000 });
 }
 
 // ─── WAVE 1: Shortcuts cheatsheet ────────────────────────────────────────────
@@ -4637,22 +6018,28 @@ function bindMedia() {
     await window.api.media.stop({ downloadFolder: config.download_folder });
   });
 
-  // Preview button — fetches stream URL via yt-dlp -g and plays in global
-  // topbar player (audio) or video modal. Video URLs can take a few seconds
-  // to resolve; the btn-loading spinner gives the user a clear "wait" signal.
-  document.getElementById('media-preview-btn').addEventListener('click', async () => {
-    const url = document.getElementById('media-url').value.trim();
-    if (!url) return;
-    const btn = document.getElementById('media-preview-btn');
-    btn.classList.add('btn-loading');
-    btn.disabled = true;
-    try {
-      await previewMediaUrl(url, currentMediaTitle || url, '🔍 MEDIA PREVIEW');
-    } finally {
-      btn.classList.remove('btn-loading');
-      btn.disabled = false;
-    }
-  });
+  // Preview buttons — fetch stream URL via yt-dlp -g and play in the global
+  // topbar player (audio) or the video modal, each with its own explicit
+  // button. Stream URLs can take a few seconds to resolve; the btn-loading
+  // spinner gives the user a clear "wait" signal. Re-enabling goes through
+  // setMediaButtonsEnabled so the video button keeps its no-video gating.
+  const bindMediaPreview = (btnId, wantVideo) => {
+    document.getElementById(btnId).addEventListener('click', async () => {
+      const url = document.getElementById('media-url').value.trim();
+      if (!url) return;
+      const btn = document.getElementById(btnId);
+      btn.classList.add('btn-loading');
+      btn.disabled = true;
+      try {
+        await previewMediaUrl(url, currentMediaTitle || url, '🔍 MEDIA PREVIEW', wantVideo);
+      } finally {
+        btn.classList.remove('btn-loading');
+        setMediaButtonsEnabled(mediaToolbarState.enabled);
+      }
+    });
+  };
+  bindMediaPreview('media-preview-audio-btn', false);
+  bindMediaPreview('media-preview-video-btn', true);
 
   document.getElementById('media-queue-btn').addEventListener('click', () => {
     const url    = document.getElementById('media-url').value.trim();
@@ -4690,11 +6077,22 @@ function bindMedia() {
 let currentMediaTitle = null;
 let probeToken = 0; // race-condition guard for stale probes
 
-function setMediaButtonsEnabled(enabled) {
+// Toolbar state: everything stays disabled until the URL check passes; the
+// video-preview button additionally requires the probed source to actually
+// carry a video stream (audio-only sources keep it visible but off).
+let mediaToolbarState = { enabled: false, hasVideo: true };
+
+function setMediaButtonsEnabled(enabled, hasVideo = mediaToolbarState.hasVideo) {
+  mediaToolbarState = { enabled, hasVideo };
   document.getElementById('media-download-btn').disabled = !enabled;
   document.getElementById('media-queue-btn').disabled    = !enabled;
-  const previewBtn = document.getElementById('media-preview-btn');
-  if (previewBtn) previewBtn.disabled = !enabled;
+  const audioBtn = document.getElementById('media-preview-audio-btn');
+  const videoBtn = document.getElementById('media-preview-video-btn');
+  if (audioBtn) audioBtn.disabled = !enabled;
+  if (videoBtn) videoBtn.disabled = !enabled || !hasVideo;
+  // The whole bar (format pills included) reads as inactive while typing /
+  // probing / on an invalid URL.
+  document.getElementById('media-toolbar')?.classList.toggle('is-disabled', !enabled);
 }
 
 // Dim format radios that can't be satisfied by the probed source. Reads the
@@ -4706,7 +6104,7 @@ function applyAvailableFormatHints(maxHeight) {
   // Format-radio definitions: button value → minimum height required.
   // Audio formats (mp3/flac/m4a/opus) always pass; video presets need
   // their nominal height available.
-  const heightFor = { video_1080: 1080, video_720: 720 };
+  const heightFor = { video_2160: 2160, video_1440: 1440, video_1080: 1080, video_720: 720 };
   document.querySelectorAll('input[name="media-format"]').forEach(radio => {
     const need = heightFor[radio.value];
     if (need && maxHeight && need > maxHeight) {
@@ -4764,7 +6162,9 @@ let videoPreviewHls = null;
 
 function openVideoPreview({ streamUrl, originalUrl, title }) {
   // Stop the audio player while a video preview is on — same bandwidth budget.
-  stopGlobalPlayer({ silent: true });
+  // NOT a silent stop: silent keeps the topbar bar in its "playing" state
+  // (title, active buttons) which reads as a player stuck without sound.
+  stopGlobalPlayer();
   const modal = document.getElementById('video-preview-modal');
   const video = document.getElementById('video-preview-element');
   const titleEl = document.getElementById('video-preview-title');
@@ -4842,6 +6242,11 @@ function bindVideoPreviewModal() {
 }
 
 async function probeUrlAndShow(url) {
+  // Streaming-playlist pages (track/album/playlist links) get their own flow:
+  // resolve the public track list, then each track is searched online via
+  // yt-dlp at download time. Everything else goes through the media probe.
+  if (isStreamingPlaylistUrl(url)) return probePlaylistAndShow(url);
+  hideMediaTracklist();
   const wrap    = document.getElementById('media-title-preview');
   const titleEl = document.getElementById('media-title-text');
   const metaEl  = document.getElementById('media-title-meta');
@@ -4875,10 +6280,13 @@ async function probeUrlAndShow(url) {
     metaEl.textContent = bits.join(' · ');
     // Disable format buttons that this source can't satisfy: e.g. if the
     // best stream is 720p we grey out the "MP4 1080p" button.
-    setMediaButtonsEnabled(true);
+    // Video preview only makes sense when the source actually has video.
+    setMediaButtonsEnabled(true, !!(r.vcodec || r.resolution || r.height));
     applyAvailableFormatHints(r.height);
     maybeShowLegalBanner(); // banner appears the first time the user lands on a valid URL
+    loadRelatedMedia(url, r.title, r.uploader); // fire-and-forget, has its own race token
   } else {
+    hideRelatedPanel();
     currentMediaTitle = null;
     wrap.classList.remove('preview-probing', 'preview-valid');
     wrap.classList.add('preview-invalid');
@@ -4902,6 +6310,97 @@ function hideMediaTitlePreview() {
   document.getElementById('media-title-preview').classList.add('hidden');
   setMediaButtonsEnabled(false); // empty URL → buttons disabled by default
   applyAvailableFormatHints(null);  // re-enable all format radios
+  hideRelatedPanel();
+  hideMediaTracklist();
+}
+
+// ─── RELATED MEDIA PANEL ("you might also like") ────────────────────────────
+// Populated after every successful probe: main.js asks the platform's native
+// recommendations API (YouTube/SoundCloud) or falls back to a YouTube search
+// on the probed title. Clicking a card loads its URL into the input (which
+// re-probes and refreshes the panel — that's the "navigation"); the hover
+// play button previews it directly.
+let relatedToken = 0; // race guard, same pattern as probeToken
+let relatedItems = [];
+
+function hideRelatedPanel() {
+  relatedToken++;
+  relatedItems = [];
+  document.getElementById('media-related')?.classList.add('hidden');
+  const list = document.getElementById('media-related-list');
+  if (list) list.innerHTML = '';
+}
+
+async function loadRelatedMedia(url, title, uploader) {
+  const wrap   = document.getElementById('media-related');
+  const list   = document.getElementById('media-related-list');
+  const status = document.getElementById('media-related-status');
+  if (!wrap || !list) return;
+  const myToken = ++relatedToken;
+  wrap.classList.remove('hidden');
+  status.textContent = t('related_loading');
+  list.innerHTML = '';
+  const r = await window.api.media.getRelated({ url, title, uploader });
+  if (myToken !== relatedToken) return; // URL changed meanwhile — stale response
+  if (!r.ok || !r.items || !r.items.length) {
+    // No recommendations is a non-event: hide the panel rather than showing
+    // an empty box under the buttons.
+    wrap.classList.add('hidden');
+    return;
+  }
+  status.textContent = r.provider === 'search' ? t('related_via_search') : '';
+  renderRelatedResults(r.items);
+}
+
+function renderRelatedResults(items) {
+  relatedItems = items;
+  const list = document.getElementById('media-related-list');
+  list.innerHTML = items.map((it, i) => {
+    // SoundCloud items are audio-only; everything else gets both preview modes
+    const audioOnly = /soundcloud\.com/i.test(it.url);
+    return `
+    <div class="related-card" data-idx="${i}" title="${escapeHtml(it.title)}">
+      <div class="related-thumb">
+        <span class="related-thumb-fallback" data-lucide-icon="music-2"></span>
+        ${it.thumbnail ? `<img src="${escapeHtml(it.thumbnail)}" alt="" loading="lazy">` : ''}
+        ${it.duration ? `<span class="related-duration">${escapeHtml(it.duration)}</span>` : ''}
+        <div class="related-actions">
+          ${audioOnly ? '' : `<button class="related-act" data-action="video" data-lucide-icon="play" title="${escapeHtml(t('related_play_video'))}"></button>`}
+          <button class="related-act" data-action="audio" data-lucide-icon="headphones" title="${escapeHtml(t('related_play_audio'))}"></button>
+        </div>
+      </div>
+      <div class="related-card-title">${escapeHtml(it.title)}</div>
+      <div class="related-card-meta">${escapeHtml(it.uploader || '')}</div>
+    </div>`;
+  }).join('');
+  applyLucideIcons(list);
+  // Broken/missing artwork → drop the <img>, the Lucide fallback shows through
+  list.querySelectorAll('.related-thumb img').forEach(img => {
+    img.addEventListener('error', () => img.remove(), { once: true });
+  });
+  list.querySelectorAll('.related-card').forEach(card => {
+    card.addEventListener('click', async e => {
+      const it = relatedItems[parseInt(card.dataset.idx, 10)];
+      if (!it) return;
+      const playBtn = e.target.closest('.related-act[data-action]');
+      if (playBtn) {
+        e.stopPropagation();
+        playBtn.classList.add('btn-loading');
+        // Explicit wantVideo override — the card buttons decide, not the
+        // Media tab format radios.
+        try { await previewMediaUrl(it.url, it.title, '🔍 RELATED', playBtn.dataset.action === 'video'); }
+        finally { playBtn.classList.remove('btn-loading'); }
+        return;
+      }
+      // Card click → load into the URL input; the input event triggers the
+      // debounced probe, which validates it and refreshes this panel too.
+      const urlInput = document.getElementById('media-url');
+      if (!urlInput) return;
+      urlInput.value = it.url;
+      urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+      urlInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
 }
 
 function handleMediaProgress(line, error) {
@@ -5163,6 +6662,10 @@ async function resolveStreamableUrl(url, kind = 'audio') {
 }
 
 function playInGlobalPlayer({ url, title, source, id, isHls }) {
+  // Audio and video preview are mutually exclusive — starting audio while the
+  // video preview modal is open must close it (same bandwidth-budget rule as
+  // openVideoPreview stopping this player).
+  closeVideoPreview();
   stopGlobalPlayer({ silent: true });
   const audio = document.getElementById('global-audio');
   const bar   = document.getElementById('global-player-bar');
@@ -5299,10 +6802,10 @@ function stopGlobalPlayer(opts = {}) {
 // ─── DOWNLOADS TRACKER (session-scoped, surfaced via topbar 📥 button) ───────
 const recentDownloads = [];
 
-function addDownloadEntry({ title, source, status = 'pending', path = null }) {
+function addDownloadEntry({ title, source, status = 'pending', path = null, kind = null }) {
   const entry = {
     id: 'dl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-    title, source, status, path,
+    title, source, status, path, kind,
     ts: Date.now()
   };
   recentDownloads.unshift(entry);
@@ -5382,8 +6885,9 @@ function renderDownloadsList() {
         </div>
       </div>
       <div class="dl-item-actions">
-        ${d.path && d.status === 'done' ? `<button class="btn-icon" data-action="play" data-id="${d.id}" data-lucide-icon="play" title="${t('downloads_play')}"></button>` : ''}
+        ${d.path && d.status === 'done' && d.kind !== 'torrent' ? `<button class="btn-icon" data-action="play" data-id="${d.id}" data-lucide-icon="play" title="${t('downloads_play')}"></button>` : ''}
         ${d.path && d.status === 'done' ? `<button class="btn-icon" data-action="folder" data-id="${d.id}" data-lucide-icon="folder-open" title="${t('downloads_open_folder')}"></button>` : ''}
+        ${d.path && d.status === 'done' && d.kind === 'torrent' && config.sendto_enabled ? `<button class="btn-icon" data-action="sendto" data-id="${d.id}" data-lucide-icon="send" title="${t('downloads_sendto') || 'Invia al client torrent'}"></button>` : ''}
         <button class="btn-icon" data-action="remove" data-id="${d.id}" data-lucide-icon="x" title="${t('downloads_remove')}"></button>
       </div>
     `;
@@ -5431,6 +6935,13 @@ async function onDownloadAction(action, id) {
     if (i >= 0) recentDownloads.splice(i, 1);
     renderDownloadsBadge();
     renderDownloadsList();
+    return;
+  }
+  if (action === 'sendto') {
+    if (!e.path) return;
+    const r = await window.api.sendto.torrent({ filePath: e.path, name: e.title || '' });
+    if (r.ok) showToast({ title: t('downloads_sendto_ok') || 'Inviato al client', body: e.title || '', kind: 'ok', ttl: 4000 });
+    else showToast({ title: t('downloads_sendto_fail') || 'Invio fallito', body: r.error || '', kind: 'err', ttl: 6000 });
     return;
   }
   if (action === 'folder') {
@@ -6207,91 +7718,83 @@ function stopRadioPlayback() {
 let spotifyResolved = null; // { type, id, name, tracks: [{title, artist, album, durationMs, status, path}] }
 
 function bindSpotify() {
-  const url = document.getElementById('spotify-url');
-  const resolveBtn = document.getElementById('spotify-resolve-btn');
-  const allBtn = document.getElementById('spotify-download-all-btn');
-  if (!url || !resolveBtn) return;
-
-  resolveBtn.addEventListener('click', () => doSpotifyResolve());
-  url.addEventListener('keydown', e => { if (e.key === 'Enter') doSpotifyResolve(); });
-  allBtn.addEventListener('click', () => downloadAllSpotifyTracks());
+  // The standalone tab is gone — the flow lives in the Media tab: pasting a
+  // playlist/album/track page URL routes probeUrlAndShow into
+  // probePlaylistAndShow, which fills the #media-tracklist panel below.
+  document.getElementById('spotify-download-all-btn')
+    ?.addEventListener('click', () => downloadAllSpotifyTracks());
 }
 
-async function doSpotifyResolve() {
-  const input = document.getElementById('spotify-url').value.trim();
-  const log   = 'spotify-log';
-  const wrap     = document.getElementById('spotify-title-preview');
-  const titleEl  = document.getElementById('spotify-title-text');
-  const metaEl   = document.getElementById('spotify-title-meta');
+// Streaming-playlist page URL? (currently: Spotify track/album/playlist —
+// mirror of main.js parseSpotifyUrl; extendable to other services later)
+function isStreamingPlaylistUrl(url) {
+  try {
+    const u = new URL(url);
+    return /(^|\.)spotify\.com$/i.test(u.hostname) && /\/(track|album|playlist)\//.test(u.pathname);
+  } catch { return false; }
+}
+
+function hideMediaTracklist() {
+  spotifyResolved = null;
+  document.getElementById('media-tracklist')?.classList.add('hidden');
   const allBtn = document.getElementById('spotify-download-all-btn');
-  const resolveBtn = document.getElementById('spotify-resolve-btn');
-  const setPreview = (state, title, meta) => {
-    wrap.classList.remove('hidden', 'preview-probing', 'preview-valid', 'preview-invalid');
-    if (state) wrap.classList.add(`preview-${state}`);
-    titleEl.textContent = title || '';
-    metaEl.textContent  = meta  || '';
-  };
-  if (!input) {
-    showToast({ title: t('spotify_toast_empty_title'), body: t('spotify_toast_empty_body'), kind: 'warn' });
+  if (allBtn) allBtn.disabled = true;
+  const tbody = document.getElementById('spotify-tbody');
+  if (tbody) tbody.innerHTML = '';
+  document.getElementById('spotify-table-wrap')?.classList.add('hidden');
+}
+
+// Media-tab variant of the old Spotify resolve: reuses the media title
+// preview + media log, shows the track-list panel on success. The format
+// toolbar stays disabled — per-track downloads are always audio matches.
+async function probePlaylistAndShow(url) {
+  const wrap    = document.getElementById('media-title-preview');
+  const titleEl = document.getElementById('media-title-text');
+  const metaEl  = document.getElementById('media-title-meta');
+  wrap.classList.remove('hidden', 'preview-valid', 'preview-invalid');
+  wrap.classList.add('preview-probing');
+  titleEl.textContent = t('spotify_resolving');
+  metaEl.textContent  = url;
+  setMediaButtonsEnabled(false);
+  hideRelatedPanel();
+  const myToken = ++probeToken;
+  let r;
+  try { r = await window.api.spotify.resolve(url); }
+  catch (e) { r = { ok: false, error: String(e?.message || e) }; }
+  if (myToken !== probeToken) return; // stale — user kept typing
+
+  wrap.classList.remove('preview-probing');
+  if (!r.ok || !r.tracks || !r.tracks.length) {
+    const isInvalid = /invalid/i.test(r.error || '');
+    const reason = !r.ok
+      ? (isInvalid ? t('spotify_err_invalid') : (r.error || t('spotify_err_fetch')))
+      : t('spotify_toast_no_tracks');
+    wrap.classList.add('preview-invalid');
+    titleEl.textContent = '✗ ' + reason;
+    metaEl.textContent  = url;
+    appendLog('media-log', '✗ ' + reason, 'error');
+    hideMediaTracklist();
     return;
   }
 
-  appendLog(log, t('spotify_resolving'), 'info');
-  setPreview('probing', t('spotify_resolving'), input);
-  allBtn.disabled = true;
-  resolveBtn?.classList.add('btn-loading');
-  resolveBtn && (resolveBtn.disabled = true);
-
-  try {
-    const r = await window.api.spotify.resolve(input);
-    if (!r.ok) {
-      const isInvalid = /invalid/i.test(r.error || '');
-      const reason = isInvalid ? t('spotify_err_invalid') : (r.error || t('spotify_err_fetch'));
-      appendLog(log, '✗ ' + reason, 'error');
-      setPreview('invalid', reason, input);
-      // Surface the error visibly — the activity log is hidden by default.
-      showToast({
-        title: t('spotify_toast_error_title'),
-        body:  reason,
-        kind:  'err',
-        ttl:   7000
-      });
-      return;
-    }
-
-    if (!r.tracks || !r.tracks.length) {
-      // Edge case: resolve "succeeded" but Spotify returned no tracks (deleted
-      // playlist, region-restricted, etc.).
-      showToast({
-        title: t('spotify_toast_error_title'),
-        body:  t('spotify_toast_no_tracks'),
-        kind:  'warn'
-      });
-      setPreview('invalid', t('spotify_toast_no_tracks'), input);
-      return;
-    }
-
-    spotifyResolved = {
-      type: r.type, id: r.id, name: r.name,
-      tracks: r.tracks.map(tr => ({ ...tr, status: 'pending', path: null, error: null }))
-    };
-    appendLog(log, t('spotify_resolved', { n: r.tracks.length, kind: r.type }), 'ok');
-    appendLog(log, t('spotify_legal_note'), 'log');
-    setPreview('valid', r.name, `${r.tracks.length} ${r.type === 'track' ? 'track' : 'tracks'} · ${input}`);
-    allBtn.disabled = false;
-    renderSpotifyTable();
-    showToast({
-      title: t('spotify_toast_resolved_title'),
-      body:  t('spotify_resolved', { n: r.tracks.length, kind: r.type }),
-      kind:  'ok',
-      ttl:   4000
-    });
-  } catch (e) {
-    showToast({ title: t('spotify_toast_error_title'), body: String(e?.message || e), kind: 'err', ttl: 7000 });
-  } finally {
-    resolveBtn?.classList.remove('btn-loading');
-    resolveBtn && (resolveBtn.disabled = false);
-  }
+  spotifyResolved = {
+    type: r.type, id: r.id, name: r.name,
+    tracks: r.tracks.map(tr => ({ ...tr, status: 'pending', path: null, error: null }))
+  };
+  currentMediaTitle = r.name;
+  wrap.classList.add('preview-valid');
+  titleEl.textContent = r.name;
+  metaEl.textContent  = `${t('spotify_resolved', { n: r.tracks.length, kind: r.type })} · ${url}`;
+  appendLog('media-log', t('spotify_resolved', { n: r.tracks.length, kind: r.type }), 'ok');
+  // Playlist mode: the format pills stay usable — they decide the per-track
+  // download format — while the direct CTAs stay off (downloads run from the
+  // track rows / the panel's download-all).
+  document.getElementById('media-toolbar')?.classList.remove('is-disabled');
+  document.getElementById('media-tracklist')?.classList.remove('hidden');
+  const allBtn = document.getElementById('spotify-download-all-btn');
+  if (allBtn) allBtn.disabled = false;
+  renderSpotifyTable();
+  maybeShowLegalBanner();
 }
 
 function renderSpotifyTable() {
@@ -6319,7 +7822,7 @@ function renderSpotifyTable() {
       <td class="td-name" title="${esc(tr.title)}">${esc(tr.title)}</td>
       <td class="td-dim">${esc(tr.artist || '—')}</td>
       <td class="td-dim">${esc(tr.album || '—')}</td>
-      <td class="td-dim"><span class="dl-item-status ${tr.status}">${esc(statusLabel)}</span></td>
+      <td class="td-dim td-track-dot"><span class="track-dot ${tr.status}" title="${esc(statusLabel)}"></span></td>
       <td class="td-actions">
         ${canPreview  ? `<button class="btn-icon" data-action="preview" data-idx="${i}" data-lucide-icon="play" title="${esc(t('spotify_preview_title'))}"></button>` : ''}
         ${canDownload ? `<button class="btn-icon" data-action="dl"      data-idx="${i}" data-lucide-icon="download" title="${esc(t('radio_download_song'))}"></button>` : ''}
@@ -6335,13 +7838,13 @@ function renderSpotifyTable() {
     b.addEventListener('click', () => {
       const tr = spotifyResolved.tracks[parseInt(b.dataset.idx, 10)];
       if (!tr?.previewUrl) return;
-      // Spotify's 30s preview URL is public scdn.co MP3 — play directly in the
-      // global topbar audio player. Source label "🎧 SPOTIFY PREVIEW" so the
-      // player widget shows it's a preview, not a full download.
+      // The service's 30s preview URL is a public MP3 — play directly in the
+      // global topbar audio player. Neutral source label so the player widget
+      // shows it's a preview, not a full download.
       playInGlobalPlayer({
         url:    tr.previewUrl,
         title:  `${tr.artist} - ${tr.title}  (${t('spotify_preview_short')})`,
-        source: '🎧 SPOTIFY PREVIEW',
+        source: '🎧 PREVIEW',
         id:     'sp_prev_' + b.dataset.idx
       });
     }));
@@ -6360,35 +7863,41 @@ async function downloadSpotifyTrack(idx) {
   if (!tr) return;
   // Spotify "download" = YouTube search + yt-dlp audio. Serialized ensure means
   // a "download all" burst prompts/fetches once, not per track.
-  if (!(await ensureBinaries(['yt-dlp', 'ffmpeg', 'ffprobe'], 'Spotify'))) return;
+  if (!(await ensureBinaries(['yt-dlp', 'ffmpeg', 'ffprobe'], 'Playlist'))) return;
   const query = [tr.artist, tr.title].filter(Boolean).join(' ');
   tr.status = 'running';
   tr.error  = null;
   renderSpotifyTable();
-  const entry = addDownloadEntry({ title: query, source: 'spotify', status: 'running' });
-  appendLog('spotify-log', `⬇ Searching YouTube for: ${query}`, 'info');
+  const entry = addDownloadEntry({ title: query, source: 'playlist', status: 'running' });
+  appendLog('media-log', `⬇ Searching for: ${query}`, 'info');
+  // The Media toolbar's format pills drive playlist downloads too — that's
+  // why the toolbar stays active in playlist mode.
+  const format = document.querySelector('input[name="media-format"]:checked')?.value || 'audio_320';
   try {
     const r = await window.api.youtube.searchAndDownload({
-      query, format: 'audio', downloadFolder: config.download_folder
+      query, format, downloadFolder: config.download_folder
     });
     if (r.ok) {
       tr.status = 'done';
       tr.path = r.path || null;
       updateDownloadEntry(entry.id, { status: 'done', path: r.path });
-      appendLog('spotify-log', `✓ ${query}`, 'ok');
-      // Spotify gives us clean artist+title — pass both directly (no parsing).
-      if (r.path) autoTagAfterDownload(r.path, null, 'spotify-log', { artist: tr.artist, title: tr.title }, entry.id);
+      appendLog('media-log', `✓ ${query}`, 'ok');
+      // The playlist metadata gives us clean artist+title — pass both directly
+      // (audio files only; video downloads skip the tagger).
+      if (r.path && /\.(mp3|flac|m4a|opus|ogg|wav|aac)$/i.test(r.path)) {
+        autoTagAfterDownload(r.path, null, 'media-log', { artist: tr.artist, title: tr.title }, entry.id);
+      }
     } else {
       tr.status = 'error';
       tr.error  = r.error || 'unknown';
       updateDownloadEntry(entry.id, { status: 'error', error: r.error });
-      appendLog('spotify-log', `✗ ${query} — ${r.error}`, 'error');
+      appendLog('media-log', `✗ ${query} — ${r.error}`, 'error');
     }
   } catch (e) {
     tr.status = 'error';
     tr.error  = String(e?.message || e);
     updateDownloadEntry(entry.id, { status: 'error', error: tr.error });
-    appendLog('spotify-log', `✗ ${query} — ${tr.error}`, 'error');
+    appendLog('media-log', `✗ ${query} — ${tr.error}`, 'error');
   }
   renderSpotifyTable();
 }
@@ -6402,9 +7911,9 @@ async function downloadAllSpotifyTracks() {
   for (const { i } of pending) {
     await downloadSpotifyTrack(i);
   }
-  appendLog('spotify-log', `✓ Batch complete (${pending.length} tracks)`, 'ok');
+  appendLog('media-log', `✓ Batch complete (${pending.length} tracks)`, 'ok');
   if (config.notify_on_done) {
-    window.api.notify.show({ title: 'FLUX', body: `Spotify batch complete (${pending.length})` });
+    window.api.notify.show({ title: 'FLUX', body: `Track list complete (${pending.length})` });
   }
 }
 
@@ -6949,10 +8458,14 @@ function bindXtractPdfPagePicker() {
       _xtractPdfState = null;
       xtractInput = sr.path;
       xtractConcatExtras = [];
+      xtractConcatExtraParams.clear();
+      normalizePeaksCache = null;
+      resetAudiotrackReplacement();
+      resetXtractNormalizeToggle();
       updateXtractClearButton();
       const info = document.getElementById('xtract-file-info');
       info.textContent = sr.path.split(/[\\/]/).pop();
-      document.getElementById('xtract-concat-info').textContent = t('xtract_concat_none');
+      renderConcatExtrasList();
       refreshXtractCards();
       probeXtractInputAudio(sr.path);
       destroyTrimEditor();
@@ -7600,7 +9113,8 @@ function bindImageAnnotate() {
   document.getElementById('annotate-size')?.addEventListener('input', applyAnnotateStyleToSelection);
   document.getElementById('annotate-delete')?.addEventListener('click', deleteAnnotateSelection);
   document.getElementById('annotate-clear')?.addEventListener('click', clearAnnotateCanvas);
-  document.getElementById('annotate-save')?.addEventListener('click', saveAnnotateCanvas);
+  // No per-tool save: annotations flatten into the global Save pipeline
+  // (see getAnnotateFlattenedData / doImageSaveAll).
 }
 
 // Called from ensureImageEditor after a file is loaded. Mounts/replaces the
@@ -7637,7 +9151,10 @@ async function mountAnnotateCanvas(filePath) {
   const h = Math.round(img.naturalHeight * scale);
   const canvas = new fabric.Canvas(canvasEl, {
     width: w, height: h,
-    backgroundColor: '#1a1a1a',
+    // TRANSPARENT background: a solid color here (a) baked itself into the
+    // flatten for source images with alpha, and (b) leaked into the overlay
+    // export. Transparency shows as the CSS checkerboard behind the canvas.
+    backgroundColor: '',
     selection: true
   });
   // v6+: the free-draw brush has to be instantiated explicitly. Without
@@ -7657,15 +9174,112 @@ async function mountAnnotateCanvas(filePath) {
   canvas.backgroundImage = fImg;
   canvas.requestRenderAll();
   const baseName = filePath.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
-  annotateState = { canvas, tool: 'select', bgImage: fImg, filePath, baseName };
+  annotateState = {
+    canvas, tool: 'select', bgImage: fImg, filePath, baseName, baseW: w, baseH: h,
+    // Which natural-pixel region the canvas maps (refreshAnnotateBackground
+    // narrows it to the crop) and its canvas-px-per-natural-px scale.
+    bgRegion: { cx: 0, cy: 0, cw: img.naturalWidth, ch: img.naturalHeight },
+    bgScale: scale
+  };
   // Selection events drive the delete button + property-panel sync.
   canvas.on('selection:created', updateAnnotateSelectionUI);
   canvas.on('selection:updated', updateAnnotateSelectionUI);
   canvas.on('selection:cleared', updateAnnotateSelectionUI);
   canvas.on('mouse:down', onAnnotateMouseDown);
   setAnnotateTool('select');
-  document.getElementById('annotate-save').disabled  = false;
   document.getElementById('annotate-clear').disabled = false;
+  applyAnnotateZoom(); // match the shared zoom bar from the start
+}
+
+// The shared zoom bar drives the annotate canvas too: fabric's setZoom scales
+// the viewport while object/scene coordinates stay put, so the flatten and
+// the overlay export stay proportional (their scale factors read c.width,
+// which setDimensions keeps in sync with the zoom).
+function applyAnnotateZoom() {
+  const c = annotateState?.canvas;
+  if (!c || !annotateState.baseW) return;
+  const z = imgCropState?.zoom || 1;
+  try {
+    c.setZoom(z);
+    c.setDimensions({
+      width:  Math.max(1, Math.round(annotateState.baseW * z)),
+      height: Math.max(1, Math.round(annotateState.baseH * z))
+    });
+    c.requestRenderAll();
+  } catch (e) {
+    console.warn('[img-preview] annotate zoom failed:', e.message);
+  }
+}
+
+// Repaint the annotate background with the current edit stack — CROP
+// INCLUDED: annotations are drawn on (and flattened with) the cropped frame,
+// so the annotate stage matches every other tool. The fabric canvas resizes
+// to the region; existing objects are re-anchored to the image CONTENT when
+// the crop changed since they were drawn.
+async function refreshAnnotateBackground() {
+  if (!annotateState?.canvas || !_fabricLib || !imgCropState) return;
+  const region = currentCropRegion();
+  if (!region) return;
+  const off = document.createElement('canvas');
+  // includeAnnotations:false — the objects live ON the fabric canvas; baking
+  // them into its background would double them.
+  if (!renderCompositeToCanvas(off, { naturalScale: true, includeAnnotations: false })) return;
+  try {
+    const c = annotateState.canvas;
+    const MAX_W = 1200, MAX_H = 800;
+    const fit = Math.min(1, MAX_W / off.width, MAX_H / off.height);
+    const w = Math.max(1, Math.round(off.width  * fit));
+    const h = Math.max(1, Math.round(off.height * fit));
+    // Crop changed since the objects were placed? Convert their canvas
+    // coords through natural-image space so they stay glued to the content.
+    const prev = annotateState.bgRegion;
+    const prevScale = annotateState.bgScale;
+    if (prev && prevScale &&
+        (prev.cx !== region.cx || prev.cy !== region.cy || prev.cw !== region.cw || prev.ch !== region.ch)) {
+      const k = fit / prevScale;
+      c.getObjects().forEach(o => {
+        const nx = prev.cx + o.left / prevScale;
+        const ny = prev.cy + o.top  / prevScale;
+        o.set({
+          left: (nx - region.cx) * fit,
+          top:  (ny - region.cy) * fit,
+          scaleX: (o.scaleX || 1) * k,
+          scaleY: (o.scaleY || 1) * k
+        });
+        o.setCoords();
+      });
+    }
+    annotateState.baseW = w;
+    annotateState.baseH = h;
+    const bg = await _fabricLib.FabricImage.fromURL(off.toDataURL('image/png'));
+    bg.set({ selectable: false, evented: false, originX: 'left', originY: 'top', scaleX: fit, scaleY: fit });
+    c.backgroundImage = bg;
+    annotateState.bgImage  = bg;
+    annotateState.bgRegion = { ...region };
+    annotateState.bgScale  = fit;
+    applyAnnotateZoom();   // re-applies dimensions from the new baseW/H
+    c.requestRenderAll();
+  } catch (e) {
+    console.warn('[img-preview] annotate bg refresh failed:', e.message);
+  }
+}
+
+// Flatten the annotate canvas (background image + overlay objects) at the
+// image's NATURAL resolution and return the PNG bytes, or null when there
+// are no annotations. Feeds the global Save pipeline as its input.
+function getAnnotateFlattenedData() {
+  const c = annotateState?.canvas;
+  if (!c || !c.getObjects().length) return null;
+  // The fabric canvas renders at preview scale (bgScale canvas-px per source
+  // px, possibly zoomed); the multiplier re-renders 1:1 with the source.
+  const zoom = c.getZoom ? (c.getZoom() || 1) : 1;
+  const multiplier = Math.max(0.01, 1 / ((annotateState.bgScale || 1) * zoom));
+  const dataUrl = c.toDataURL({ format: 'png', multiplier });
+  const b64 = dataUrl.split(',')[1] || '';
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
 }
 
 function unmountAnnotateCanvas() {
@@ -7688,10 +9302,8 @@ function unmountAnnotateCanvas() {
     canvasEl.height = 0;
     canvasEl.removeAttribute('style');  // fabric writes inline styles we must shed too
   }
-  const saveBtn = document.getElementById('annotate-save');
   const clearBtn = document.getElementById('annotate-clear');
   const delBtn = document.getElementById('annotate-delete');
-  if (saveBtn)  saveBtn.disabled  = true;
   if (clearBtn) clearBtn.disabled = true;
   if (delBtn)   delBtn.disabled   = true;
 }
@@ -7721,7 +9333,9 @@ async function onAnnotateMouseDown(opt) {
   const fabric = _fabricLib;
   const c = annotateState.canvas;
   const tool = annotateState.tool;
-  const pt = c.getViewportPoint ? c.getViewportPoint(opt.e) : c.getPointer(opt.e);
+  // Scene coords (zoom-aware) — viewport coords misplace objects at zoom ≠ 1.
+  const pt = c.getScenePoint ? c.getScenePoint(opt.e)
+           : c.getViewportPoint ? c.getViewportPoint(opt.e) : c.getPointer(opt.e);
   const color = document.getElementById('annotate-color').value;
   const size  = parseInt(document.getElementById('annotate-size').value, 10) || 20;
   if (tool === 'rect') {
@@ -7734,7 +9348,8 @@ async function onAnnotateMouseDown(opt) {
     c.setActiveObject(rect);
     const startX = pt.x, startY = pt.y;
     const onMove = (ev) => {
-      const p = c.getViewportPoint ? c.getViewportPoint(ev.e) : c.getPointer(ev.e);
+      const p = c.getScenePoint ? c.getScenePoint(ev.e)
+              : c.getViewportPoint ? c.getViewportPoint(ev.e) : c.getPointer(ev.e);
       rect.set({
         left: Math.min(startX, p.x),
         top:  Math.min(startY, p.y),
@@ -7868,6 +9483,53 @@ async function saveAnnotateCanvas() {
 // image, lets user drag the divider/slider to reveal "A" or "B".
 let imgComparePathB = null;
 
+// Refresh the compare stage. Callable from outside the bind closure (the tool
+// rail re-runs it when the Compare tool opens). With no B picked yet it shows
+// the CURRENT image alone — an empty stage read as "compare shows nothing".
+function refreshImageCompare() {
+  const reset  = document.getElementById('img-compare-reset');
+  const swap   = document.getElementById('img-compare-swap');
+  const slider = document.getElementById('img-compare-slider');
+  const stage  = document.getElementById('img-compare-stage');
+  const imgA   = document.getElementById('img-compare-a');
+  const imgB   = document.getElementById('img-compare-b');
+  const info   = document.getElementById('img-compare-info');
+  if (!stage || !slider) return;
+  if (!xtractInput) {
+    stage.classList.add('hidden');
+    reset.disabled = true; swap.disabled = true; slider.disabled = true;
+    info.style.display = 'none';
+    return;
+  }
+  const hasB = !!imgComparePathB;
+  // Side A = the CURRENT edit stack, not the untouched file — that's the
+  // whole point of comparing. Falls back to the raw file with no edits.
+  let aSrc = localFileURL(xtractInput);
+  try {
+    if (typeof collectImageEdits === 'function' && collectImageEdits()) {
+      const off = document.createElement('canvas');
+      if (renderCompositeToCanvas(off)) aSrc = off.toDataURL('image/png');
+    }
+  } catch { /* raw file fallback */ }
+  imgA.src = aSrc;
+  if (hasB) imgB.src = localFileURL(imgComparePathB);
+  else imgB.removeAttribute('src');
+  imgB.style.display = hasB ? '' : 'none';
+  stage.querySelector('.img-compare-divider')?.style.setProperty('display', hasB ? '' : 'none');
+  document.querySelectorAll('.img-compare-label').forEach(l => l.style.display = hasB ? '' : 'none');
+  // Reset label text to canonical A/B (user may have swapped before
+  // picking a new B — the label state would otherwise carry over).
+  const labelA = document.querySelector('.img-compare-label-a');
+  const labelB = document.querySelector('.img-compare-label-b');
+  if (labelA) labelA.textContent = 'A';
+  if (labelB) labelB.textContent = 'B';
+  stage.classList.remove('hidden');
+  reset.disabled = !hasB; swap.disabled = !hasB; slider.disabled = !hasB;
+  info.style.display = hasB ? '' : 'none';
+  if (hasB) info.textContent = imgComparePathB.split(/[\\/]/).pop();
+  stage.style.setProperty('--split', parseFloat(slider.value) + '%');
+}
+
 function bindImageCompareControls() {
   const pick   = document.getElementById('img-compare-pick');
   const reset  = document.getElementById('img-compare-reset');
@@ -7876,34 +9538,8 @@ function bindImageCompareControls() {
   const stage  = document.getElementById('img-compare-stage');
   const imgA   = document.getElementById('img-compare-a');
   const imgB   = document.getElementById('img-compare-b');
-  const info   = document.getElementById('img-compare-info');
   if (!pick || !slider) return;
-
-  const refresh = () => {
-    if (!xtractInput || !imgComparePathB) {
-      stage.classList.add('hidden');
-      reset.classList.add('hidden'); swap.classList.add('hidden'); slider.classList.add('hidden');
-      reset.disabled = true; swap.disabled = true; slider.disabled = true;
-      info.style.display = 'none';
-      return;
-    }
-    imgA.src = localFileURL(xtractInput);
-    imgB.src = localFileURL(imgComparePathB);
-    // Reset label text to canonical A/B (user may have swapped before
-    // picking a new B — the label state would otherwise carry over).
-    const labelA = document.querySelector('.img-compare-label-a');
-    const labelB = document.querySelector('.img-compare-label-b');
-    if (labelA) labelA.textContent = 'A';
-    if (labelB) labelB.textContent = 'B';
-    stage.classList.remove('hidden');
-    reset.classList.remove('hidden'); swap.classList.remove('hidden'); slider.classList.remove('hidden');
-    reset.disabled = false; swap.disabled = false; slider.disabled = false;
-    info.style.display = '';
-    info.textContent = imgComparePathB.split(/[\\/]/).pop();
-    // Apply current slider value to the clip + divider position.
-    const pct = parseFloat(slider.value);
-    stage.style.setProperty('--split', pct + '%');
-  };
+  const refresh = refreshImageCompare;
   refresh();
 
   pick.addEventListener('click', async () => {
@@ -7938,6 +9574,25 @@ function bindImageCompareControls() {
   });
   slider.addEventListener('input', () => {
     stage.style.setProperty('--split', slider.value + '%');
+  });
+  // The divider is draggable directly on the stage (the range slider below
+  // stays as the precision control).
+  stage.addEventListener('mousedown', ev => {
+    if (!imgComparePathB || ev.button !== 0) return;
+    ev.preventDefault();
+    const move = e2 => {
+      const r = stage.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(100, ((e2.clientX - r.left) / r.width) * 100));
+      slider.value = String(pct);
+      stage.style.setProperty('--split', pct + '%');
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    move(ev);
   });
 }
 
@@ -8426,10 +10081,14 @@ async function loadCapturedFile(filePath) {
   destroyImageEditor();
   xtractInput = filePath;
   xtractConcatExtras = [];
+  xtractConcatExtraParams.clear();
+  normalizePeaksCache = null;
+  resetAudiotrackReplacement();
+  resetXtractNormalizeToggle();
   updateXtractClearButton();
   const info = document.getElementById('xtract-file-info');
   info.textContent = filePath.split(/[\\/]/).pop();
-  document.getElementById('xtract-concat-info').textContent = t('xtract_concat_none');
+  renderConcatExtrasList();
   refreshXtractCards();
   probeXtractInputAudio(filePath);  // silent-video gate for the Split / Extract audio / Normalize cards
   refreshTrimFormatDropdown(xtractCurrentView);
@@ -10196,6 +11855,180 @@ function bindNzb() {
   document.getElementById('cfg-save-btn')?.addEventListener('click', () => setTimeout(refreshTargetLabel, 100));
 }
 
+// ─── REMOTE TAB (phone → FLUX companion) ─────────────────────────────────────
+// Telegram bot token + LAN toggle/port are plain config keys — saving them
+// goes through the normal window.api.config.save(config), same as any other
+// setting. Main.js watches config:save and (re)starts the two transports
+// itself (syncRemoteServicesWithConfig), so this tab never talks to the
+// bot/server directly — only status/log/pairing IPC round-trips.
+let _remoteCodeTimer = null;
+function startRemoteCodeCountdown(el, code, expiresAt) {
+  if (_remoteCodeTimer) clearInterval(_remoteCodeTimer);
+  const tick = () => {
+    const remain = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+    if (remain <= 0) {
+      clearInterval(_remoteCodeTimer);
+      el.classList.add('hidden');
+      return;
+    }
+    el.textContent = `${code} (${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, '0')})`;
+  };
+  tick();
+  _remoteCodeTimer = setInterval(tick, 1000);
+}
+
+async function renderRemoteStatus() {
+  const status = await window.api.remote.getStatus();
+
+  const dot = document.getElementById('remote-telegram-dot');
+  const statusText = document.getElementById('remote-telegram-status-text');
+  if (status.telegramConfigured) {
+    dot.classList.toggle('connected', status.telegramPolling);
+    statusText.textContent = status.telegramPolling
+      ? (t('remote_telegram_status_on') || 'Connesso')
+      : (t('remote_telegram_status_configured') || 'Token salvato, in avvio…');
+  } else {
+    dot.classList.remove('connected');
+    statusText.textContent = t('remote_telegram_status_off') || 'Non configurato';
+  }
+
+  const wl = document.getElementById('remote-whitelist-list');
+  wl.innerHTML = status.whitelist.length ? '' : `<li class="remote-list-empty">${esc(t('remote_no_phones') || 'Nessun telefono associato.')}</li>`;
+  status.whitelist.forEach(w => {
+    const li = document.createElement('li');
+    li.className = 'remote-list-item';
+    li.innerHTML = `<span>${esc(w.label)}</span><span class="remote-list-item-meta">${esc(relativeTime(w.pairedAt))}</span><button type="button" class="btn-icon btn-icon-danger" data-chat-id="${esc(w.chatId)}" data-lucide-icon="trash-2"></button>`;
+    wl.appendChild(li);
+  });
+
+  const lanEnabledInput = document.getElementById('remote-lan-enabled');
+  const lanPortInput    = document.getElementById('remote-lan-port');
+  if (document.activeElement !== lanEnabledInput) lanEnabledInput.checked = status.lanEnabled;
+  if (document.activeElement !== lanPortInput) lanPortInput.value = status.lanPort;
+
+  const devicesList = document.getElementById('remote-lan-devices-list');
+  devicesList.innerHTML = status.lanDevices.length ? '' : `<li class="remote-list-empty">${esc(t('remote_no_lan_devices') || 'Nessun dispositivo LAN associato.')}</li>`;
+  status.lanDevices.forEach(d => {
+    const li = document.createElement('li');
+    li.className = 'remote-list-item';
+    li.innerHTML = `<span>${esc(d.label)}</span><span class="remote-list-item-meta">${esc(relativeTime(d.pairedAt))}</span><button type="button" class="btn-icon btn-icon-danger" data-lan-token="${esc(d.token)}" data-lucide-icon="trash-2"></button>`;
+    devicesList.appendChild(li);
+  });
+
+  applyLucideIcons(wl);
+  applyLucideIcons(devicesList);
+}
+
+function bindRemote() {
+  const tokenInput      = document.getElementById('remote-bot-token');
+  const tokenSaveBtn    = document.getElementById('remote-token-save-btn');
+  const pairCodeBtn     = document.getElementById('remote-pair-code-btn');
+  const pairCodeDisplay = document.getElementById('remote-pair-code-display');
+  const lanEnabled      = document.getElementById('remote-lan-enabled');
+  const lanPort         = document.getElementById('remote-lan-port');
+  const lanQrBtn        = document.getElementById('remote-lan-qr-btn');
+  const lanPairingBox   = document.getElementById('remote-lan-pairing');
+  const lanQrImg        = document.getElementById('remote-lan-qr-img');
+  const lanUrlEl        = document.getElementById('remote-lan-url');
+  const lanPinEl        = document.getElementById('remote-lan-pin');
+  const whitelistList   = document.getElementById('remote-whitelist-list');
+  const devicesList     = document.getElementById('remote-lan-devices-list');
+
+  tokenInput.value  = config.remote_bot_token || '';
+  lanEnabled.checked = !!config.remote_lan_enabled;
+  lanPort.value      = config.remote_lan_port || 8765;
+
+  tokenSaveBtn.addEventListener('click', async () => {
+    config.remote_bot_token = tokenInput.value.trim();
+    await window.api.config.save(config);
+    showToast({ title: t('remote_token_saved') || 'Token salvato', kind: 'ok', ttl: 3000 });
+    setTimeout(renderRemoteStatus, 500); // give main.js a beat to (re)start polling
+  });
+
+  pairCodeBtn.addEventListener('click', async () => {
+    const res = await window.api.remote.generatePairingCode();
+    if (!res.ok) { showToast({ title: t('remote_error') || 'Errore', body: res.error, kind: 'err' }); return; }
+    pairCodeDisplay.classList.remove('hidden');
+    startRemoteCodeCountdown(pairCodeDisplay, res.code, res.expiresAt);
+  });
+
+  lanEnabled.addEventListener('change', async () => {
+    config.remote_lan_enabled = lanEnabled.checked;
+    await window.api.config.save(config);
+    setTimeout(renderRemoteStatus, 500);
+  });
+  lanPort.addEventListener('change', async () => {
+    const v = parseInt(lanPort.value, 10);
+    config.remote_lan_port = (v >= 1024 && v <= 65535) ? v : 8765;
+    lanPort.value = config.remote_lan_port;
+    await window.api.config.save(config);
+    setTimeout(renderRemoteStatus, 500);
+  });
+
+  lanQrBtn.addEventListener('click', async () => {
+    const res = await window.api.remote.generateLanPin();
+    if (!res.ok) { showToast({ title: t('remote_error') || 'Errore', body: res.error, kind: 'err' }); return; }
+    lanQrImg.src = `${res.qrUrl}?t=${Date.now()}`;
+    lanUrlEl.textContent = res.url;
+    lanPinEl.textContent = res.pin;
+    lanPairingBox.classList.remove('hidden');
+  });
+
+  whitelistList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-chat-id]');
+    if (!btn) return;
+    await window.api.remote.removeWhitelistChat(btn.dataset.chatId);
+    renderRemoteStatus();
+  });
+  devicesList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-lan-token]');
+    if (!btn) return;
+    await window.api.remote.removeLanDevice(btn.dataset.lanToken);
+    renderRemoteStatus();
+  });
+
+  window.api.remote.onPaired(() => {
+    renderRemoteStatus();
+    showToast({ title: t('remote_paired_title') || 'Telefono associato', kind: 'ok', ttl: 4000 });
+  });
+
+  document.getElementById('remote-pairing-guide-btn')?.addEventListener('click', () => {
+    document.getElementById('remote-pairing-guide-modal').classList.remove('hidden');
+  });
+  document.getElementById('remote-pairing-guide-close')?.addEventListener('click', () => {
+    document.getElementById('remote-pairing-guide-modal').classList.add('hidden');
+  });
+  document.getElementById('remote-commands-guide-btn')?.addEventListener('click', () => {
+    document.getElementById('remote-commands-guide-modal').classList.remove('hidden');
+  });
+  document.getElementById('remote-commands-guide-close')?.addEventListener('click', () => {
+    document.getElementById('remote-commands-guide-modal').classList.add('hidden');
+  });
+
+  // A phone-triggered download/torrent-save runs entirely in main.js — no
+  // renderer code path touches it, so without this it's invisible in the
+  // desktop UI: not in the 📥 tracker, no notification, stale History cache.
+  window.api.remote.onActionDone(entry => {
+    addDownloadEntry({ title: entry.name, source: entry.source, status: entry.ok ? 'done' : 'error', path: entry.path || null, kind: entry.kind || null });
+    history = null; // invalidate the History cache so the tab reloads fresh next time it's opened
+    if (config.notify_on_done) {
+      window.api.notify.show({
+        title: 'FLUX',
+        body: entry.ok ? `✓ ${entry.name} (${entry.source})` : `✗ ${entry.name}: ${entry.error || ''}`
+      });
+    }
+  });
+
+  // Light poll while Settings is open — surfaces new whitelist/device
+  // entries paired from a phone without needing a push event for every case.
+  setInterval(() => {
+    const tab = document.getElementById('tab-settings');
+    if (tab && tab.classList.contains('active')) renderRemoteStatus();
+  }, 8000);
+
+  renderRemoteStatus();
+}
+
 // ─── IRC / XDCC TAB ──────────────────────────────────────────────────────────
 // Classic multi-channel IRC client. Each joined channel and each opened PM
 // gets its own tab; a special Server tab holds MOTD/numerics/notices that
@@ -11121,9 +12954,13 @@ async function renderHistory() {
     const statusCell = `<span class="dl-item-status ${statusKey}" title="${esc(h.error || '')}">${esc(statusLabel)}</span>`;
     const rawName = h.path ? baseName(h.path) : baseName(h.name);
     const nm = rawName.length > 60 ? rawName.substring(0, 57) + '…' : rawName;
+    // Torrent entries got a "play" button by mistake — a .torrent/.magnet
+    // file isn't playable. Offer "send to client" instead when configured.
+    const isTorrent = h.kind === 'torrent';
     const actions = h.path && h.ok
-      ? `<button class="btn-icon" data-play="${esc(h.path)}" data-lucide-icon="play" title="${esc(t('downloads_play'))}"></button>
-         <button class="btn-icon" data-folder="${esc(h.path)}" data-lucide-icon="folder" title="${esc(t('downloads_open_folder'))}"></button>`
+      ? `${!isTorrent ? `<button class="btn-icon" data-play="${esc(h.path)}" data-lucide-icon="play" title="${esc(t('downloads_play'))}"></button>` : ''}
+         <button class="btn-icon" data-folder="${esc(h.path)}" data-lucide-icon="folder" title="${esc(t('downloads_open_folder'))}"></button>
+         ${isTorrent && config.sendto_enabled ? `<button class="btn-icon" data-sendto="${esc(h.path)}" data-sendto-name="${esc(h.name || '')}" data-lucide-icon="send" title="${esc(t('downloads_sendto') || 'Invia al client torrent')}"></button>` : ''}`
       : '';
     tr.innerHTML = `
       <td class="td-dim">${date}</td>
@@ -11155,6 +12992,18 @@ async function renderHistory() {
         const p = folderBtn.dataset.folder;
         if (!p) return;
         window.api.shell.revealInFolder(p);
+        return;
+      }
+      const sendtoBtn = e.target.closest('[data-sendto]');
+      if (sendtoBtn) {
+        const p = sendtoBtn.dataset.sendto;
+        if (!p) return;
+        sendtoBtn.disabled = true;
+        window.api.sendto.torrent({ filePath: p, name: sendtoBtn.dataset.sendtoName || '' }).then(r => {
+          sendtoBtn.disabled = false;
+          if (r.ok) showToast({ title: t('downloads_sendto_ok') || 'Inviato al client', body: sendtoBtn.dataset.sendtoName || '', kind: 'ok', ttl: 4000 });
+          else showToast({ title: t('downloads_sendto_fail') || 'Invio fallito', body: r.error || '', kind: 'err', ttl: 6000 });
+        });
       }
     });
   }
@@ -11788,6 +13637,7 @@ async function onModuleBinFetchClick(e) {
     const r = await window.api.binary.fetch(id);
     if (!r.ok) throw new Error(r.error || 'failed');
     await renderModulesList();           // re-reads binaryStatus → chips flip to present
+    refreshXtractFfmpegStatus();         // in case ffmpeg/ffprobe were what was missing
   } catch (err) {
     label.textContent = `${id} — ${t('binfetch_failed_short') || 'failed'}`;
     btn.classList.add('is-error');
@@ -11831,6 +13681,7 @@ async function onModuleFetchAllClick(e) {
     _dlActive = false;
     setBinaryProgressHandler(null);
     await renderModulesList();
+    refreshXtractFfmpegStatus();         // in case ffmpeg/ffprobe were among the fetched binaries
   } catch (err) {
     _dlActive = false;
     setBinaryProgressHandler(null);
@@ -12607,7 +14458,6 @@ const LOG_TOAST_TITLES = {
   'torrent-log': 'Torrent search',
   'queue-log':   'Queue',
   'tag-log':     'Audio Editor',
-  'spotify-log': 'Spotify',
   'xtract-log':  'Manage'
 };
 // Debounce identical toasts so retries / multi-error operations don't spam.

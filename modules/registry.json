@@ -25,10 +25,10 @@
     {
       "id": "media",
       "name": "Media",
-      "description": "Download videos, audio, podcasts, livestreams, radio, RSS feeds, Spotify (via yt-dlp). Handles format presets (MP4/MKV/MP3/FLAC/M4A/Opus, 720p/1080p), batch queue, retry/resume.",
+      "description": "Download videos, audio, podcasts, livestreams, radio, RSS feeds and public playlist pages (via yt-dlp). Handles format presets (MP4/MKV/MP3/FLAC/M4A/Opus, 4K→720p), batch queue, retry/resume.",
       "required": false,
       "binaries": ["yt-dlp", "ffmpeg", "ffprobe"],
-      "tabs": ["media", "live", "radio", "rss", "spotify"]
+      "tabs": ["media", "live", "radio", "rss"]
     },
     {
       "id": "torrent",
@@ -101,6 +101,14 @@
       "required": false,
       "binaries": ["ffmpeg", "ffprobe"],
       "tabs": ["video"]
+    },
+    {
+      "id": "remote",
+      "name": "Remote",
+      "description": "Phone→FLUX companion: send a URL to download, search torrents, or fetch a trailer from your phone via a paired Telegram bot or the local-network mini web server. Pairing via 6-digit code (Telegram) or QR code (LAN). No content ever leaves the desktop unless you explicitly send it (same-source link or Telegram file relay).",
+      "required": false,
+      "binaries": [],
+      "tabs": ["remote"]
     }
   ]
 }

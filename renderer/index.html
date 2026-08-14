@@ -39,10 +39,6 @@
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg></span>
             <span class="nav-label" data-i18n="nav_radio">Radio</span>
           </li>
-          <li class="nav-item" data-tab="spotify" data-i18n-title="nav_spotify">
-            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="10"/><path d="M7 9.5c3-1.2 7-1.2 10 0.5"/><path d="M7.5 12.5c2.5-0.9 5.5-0.9 8 0.5"/><path d="M8 15.5c2-0.6 4-0.6 6 0.3"/></svg></span>
-            <span class="nav-label" data-i18n="nav_spotify">Spotify</span>
-          </li>
           <li class="nav-item" data-tab="torrent" data-i18n-title="nav_torrent">
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
             <span class="nav-label" data-i18n="nav_torrent">Torrent</span>
@@ -227,7 +223,7 @@
       <div class="home-grid">
         <div class="home-card">
           <h3 class="home-card-title"><span data-lucide-icon="download-cloud"></span> <span data-i18n="home_p2_title">Fetch</span></h3>
-          <p data-i18n="home_p2_body">Paste any media URL (YouTube, podcast feeds, RSS, internet radio, public Spotify tracks for metadata-only lookup) and FLUX resolves the best playable stream via yt-dlp. RSS feeds support auto-update; podcasts can be played in-app or downloaded as MP3/MP4.</p>
+          <p data-i18n="home_p2_body">Paste any media URL (video/audio pages, podcast feeds, RSS, internet radio, public playlist links for metadata-only lookup) and FLUX resolves the best playable stream via yt-dlp. RSS feeds support auto-update; podcasts can be played in-app or downloaded as MP3/MP4.</p>
         </div>
         <div class="home-card">
           <h3 class="home-card-title"><span data-lucide-icon="upload"></span> <span data-i18n="home_p3_title">Load</span></h3>
@@ -460,35 +456,75 @@
           <span class="media-title-meta" id="media-title-meta"></span>
         </div>
         <input type="text" id="media-url" class="search-input plain-input" data-i18n-ph="media_url_ph"
-               placeholder="Inserisci URL del media…" autocomplete="off" autocorrect="off" spellcheck="false" />
+               placeholder="Incolla un URL media, di pagina o di una playlist…" autocomplete="off" autocorrect="off" spellcheck="false" />
       </div>
-      <div class="format-row">
-        <label class="field-label" data-i18n="media_format">Format</label>
-        <div class="format-section-label" data-i18n="media_video_section">Video</div>
-        <div class="format-options">
-          <label class="radio-card"><input type="radio" name="media-format" value="video" checked /><span data-lucide-icon="play"></span><span data-i18n="media_video">Video (best)</span></label>
-          <label class="radio-card"><input type="radio" name="media-format" value="video_1080" /><span data-lucide-icon="play"></span><span data-i18n="media_video_1080">Video 1080p</span></label>
-          <label class="radio-card"><input type="radio" name="media-format" value="video_720" /><span data-lucide-icon="play"></span><span data-i18n="media_video_720">Video 720p</span></label>
-          <label class="radio-card"><input type="radio" name="media-format" value="mp4" /><span data-lucide-icon="film"></span><span data-i18n="media_mp4">MP4</span></label>
-          <label class="radio-card"><input type="radio" name="media-format" value="mkv" /><span data-lucide-icon="film"></span><span data-i18n="media_mkv">MKV</span></label>
-        </div>
-        <div class="format-section-label" data-i18n="media_audio_section">Audio</div>
-        <div class="format-options">
-          <label class="radio-card"><input type="radio" name="media-format" value="audio" /><span data-lucide-icon="music"></span><span data-i18n="media_audio">Audio MP3</span></label>
-          <label class="radio-card"><input type="radio" name="media-format" value="audio_flac" /><span data-lucide-icon="music"></span><span data-i18n="media_audio_flac">Audio FLAC</span></label>
-          <label class="radio-card"><input type="radio" name="media-format" value="audio_m4a" /><span data-lucide-icon="music"></span><span data-i18n="media_audio_m4a">Audio M4A</span></label>
-          <label class="radio-card"><input type="radio" name="media-format" value="audio_opus" /><span data-lucide-icon="music"></span><span data-i18n="media_audio_opus">Audio Opus</span></label>
-        </div>
+      <!-- Two-row toolbar (tag-editor style). Row 1: video formats + save CTAs.
+           Row 2: audio formats + preview CTAs. Inactive until the URL check passes. -->
+      <div class="media-toolbar input-zone is-disabled" id="media-toolbar">
+        <span class="media-toolbar-kind" data-lucide-icon="film"></span>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="video" checked /><span data-i18n="media_fmt_best">Best</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="video_2160" /><span>4K</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="video_1440" /><span>2K</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="video_1080" /><span>1080p</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="video_720" /><span>720p</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="mp4" /><span>MP4</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="mkv" /><span>MKV</span></label>
+        <span class="media-toolbar-ctas">
+          <button class="btn-icon btn-icon-primary" id="media-download-btn" title="Download Now" data-i18n-title="media_download" data-lucide-icon="download" disabled></button>
+          <button class="btn-icon btn-icon-danger hidden" id="media-stop-btn" title="Stop" data-i18n-title="media_stop" data-lucide-icon="square"></button>
+          <button class="btn-icon btn-icon-primary" id="media-queue-btn" title="Add to Queue" data-i18n-title="media_queue" data-lucide-icon="plus" disabled></button>
+        </span>
+
+        <span class="toolbar-break"></span>
+
+        <span class="media-toolbar-kind" data-lucide-icon="music"></span>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="audio_320" /><span>MP3 320</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="audio_256" /><span>MP3 256</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="audio_128" /><span>MP3 128</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="audio_flac" /><span>FLAC</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="audio_m4a" /><span>M4A</span></label>
+        <label class="fmt-pill"><input type="radio" name="media-format" value="audio_opus" /><span>Opus</span></label>
+        <span class="media-toolbar-ctas">
+          <button class="btn-icon" id="media-preview-audio-btn" title="Audio preview" data-i18n-title="media_preview_audio" data-lucide-icon="headphones" disabled></button>
+          <button class="btn-icon" id="media-preview-video-btn" title="Video preview" data-i18n-title="media_preview_video" data-lucide-icon="play" disabled></button>
+        </span>
       </div>
       <div class="progress-bar-wrap hidden" id="media-progress-wrap">
         <div class="progress-bar" id="media-progress-bar"></div>
         <span class="progress-bar-text" id="media-progress-text">0%</span>
       </div>
-      <div class="btn-row">
-        <button class="btn btn-primary" id="media-download-btn" data-lucide-icon="download" data-i18n="media_download">Download Now</button>
-        <button class="btn btn-ghost" id="media-preview-btn" data-lucide-icon="play" data-i18n="live_preview" disabled>Preview</button>
-        <button class="btn btn-danger-sm hidden" id="media-stop-btn" data-lucide-icon="square" data-i18n="media_stop">Stop</button>
-        <button class="btn btn-ghost" id="media-queue-btn" data-lucide-icon="plus" data-i18n="media_queue">Add to Queue</button>
+      <!-- Track-list panel: appears when the pasted URL is a public playlist /
+           album / track page. Tracks are searched online via yt-dlp at
+           download time; no protected audio is touched. -->
+      <div class="media-tracklist hidden" id="media-tracklist">
+        <div class="media-related-head">
+          <span class="media-related-title"><span data-lucide-icon="list-music"></span><span data-i18n="media_tracklist_title">Track list</span></span>
+          <button class="btn-icon" id="spotify-download-all-btn" title="Download all" data-i18n-title="spotify_download_all" data-lucide-icon="download" disabled></button>
+        </div>
+        <div class="legal-banner legal-banner-permanent">
+          <span class="legal-banner-icon" aria-hidden="true">!</span>
+          <span class="legal-banner-text" data-i18n="spotify_legal_warning">FLUX does NOT download Spotify-protected audio. It reads public track metadata, then searches YouTube and downloads matching audio via yt-dlp. Use only for tracks you legitimately have access to (your own library, free content, or where you hold a Spotify subscription). You are responsible for compliance with the copyright law of your country.</span>
+        </div>
+        <div class="results-table-wrap hidden" id="spotify-table-wrap">
+          <table class="results-table">
+            <thead><tr>
+              <th data-i18n="radio_th_num">#</th>
+              <th data-i18n="radio_th_name">Title</th>
+              <th data-i18n="spotify_th_artist">Artist</th>
+              <th data-i18n="spotify_th_album">Album</th>
+              <th data-i18n="spotify_th_status">Status</th>
+              <th data-i18n="radio_th_actions">Actions</th>
+            </tr></thead>
+            <tbody id="spotify-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="media-related" class="media-related hidden">
+        <div class="media-related-head">
+          <span class="media-related-title"><span data-lucide-icon="sparkles"></span><span data-i18n="related_title">You might also like</span></span>
+          <span class="media-related-status" id="media-related-status"></span>
+        </div>
+        <div class="media-related-list" id="media-related-list"></div>
       </div>
       <div id="media-log" class="activity-log"></div>
     </section>
@@ -582,45 +618,6 @@
     </section>
 
     <!-- SPOTIFY (gray-area: paste public Spotify URL → resolve titles → YouTube search + yt-dlp audio) -->
-    <section id="tab-spotify" class="tab hidden">
-      <div class="tab-header">
-        <h1 data-i18n="spotify_title">Spotify → YouTube</h1>
-        <p class="tab-sub" data-i18n="spotify_sub">Paste a Spotify track, album or playlist URL — FLUX resolves track titles and downloads matching audio from YouTube.</p>
-      </div>
-      <!-- Permanent legal warning — Spotify→YouTube is grey-area, user
-           responsibility. Not dismissible by design. -->
-      <div class="legal-banner legal-banner-permanent">
-        <span class="legal-banner-icon" aria-hidden="true">!</span>
-        <span class="legal-banner-text" data-i18n="spotify_legal_warning">FLUX does NOT download Spotify-protected audio. It reads public track metadata, then searches YouTube and downloads matching audio via yt-dlp. Use only for tracks you legitimately have access to (your own library, free content, or where you hold a Spotify subscription). You are responsible for compliance with the copyright law of your country.</span>
-      </div>
-      <div class="input-zone input-zone-stack">
-        <div id="spotify-title-preview" class="media-title-preview hidden">
-          <span class="media-title-text" id="spotify-title-text"></span>
-          <span class="media-title-meta" id="spotify-title-meta"></span>
-        </div>
-        <input type="text" id="spotify-url" class="search-input plain-input"
-               data-i18n-ph="spotify_url_ph" placeholder="Inserisci URL della playlist Spotify…" autocomplete="off" />
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-primary" id="spotify-resolve-btn" data-lucide-icon="search"><span data-i18n="spotify_resolve">Resolve</span></button>
-        <button class="btn btn-ghost" id="spotify-download-all-btn" data-lucide-icon="download" disabled><span data-i18n="spotify_download_all">Download all</span></button>
-      </div>
-      <div class="results-table-wrap hidden" id="spotify-table-wrap">
-        <table class="results-table">
-          <thead><tr>
-            <th data-i18n="radio_th_num">#</th>
-            <th data-i18n="radio_th_name">Title</th>
-            <th data-i18n="spotify_th_artist">Artist</th>
-            <th data-i18n="spotify_th_album">Album</th>
-            <th data-i18n="spotify_th_status">Status</th>
-            <th data-i18n="radio_th_actions">Actions</th>
-          </tr></thead>
-          <tbody id="spotify-tbody"></tbody>
-        </table>
-      </div>
-      <div id="spotify-log" class="activity-log"></div>
-    </section>
-
     <!-- TAG EDITOR -->
     <section id="tab-tag" class="tab hidden">
       <div class="tab-header">
@@ -815,7 +812,7 @@
       <div id="music-list-modal" class="modal hidden" data-dismissible="true">
         <div class="modal-box modal-box-lg">
           <h3 class="modal-title"><span data-lucide-icon="list-music"></span> <span data-i18n="musiclist_title">Search music from list</span></h3>
-          <p class="field-help" data-i18n="musiclist_intro">Paste one track per line (or load a TXT/CSV). Items are added to the queue and searched on YouTube at download time.</p>
+          <p class="field-help" data-i18n="musiclist_intro">Paste one track per line (or load a TXT/CSV). Items are added to the queue and searched online at download time.</p>
           <textarea id="music-list-input" class="search-input plain-input tbatch-textarea" rows="6" placeholder="Daft Punk - Get Lucky&#10;Adele - Hello&#10;…" data-i18n-ph="musiclist_placeholder"></textarea>
           <div class="modal-actions">
             <button class="btn btn-ghost" id="music-list-load" data-lucide-icon="upload" data-i18n="musiclist_load">Load file</button>
@@ -908,7 +905,7 @@
           <div id="rss-empty" class="rss-empty">
             <div class="rss-empty-icon" data-lucide-icon="rss" data-lucide-size="48"></div>
             <div class="rss-empty-title" data-i18n="rss_select">Select a feed to browse its items</div>
-            <div class="rss-empty-hint" data-i18n="rss_empty_hint">Add a feed using the + button above — RSS 2.0, Atom and iTunes podcast feeds are supported.</div>
+            <div class="rss-empty-hint" data-i18n="rss_empty_hint">Add a feed using the + button above — RSS 2.0, Atom and podcast feeds are supported, or paste a video channel URL.</div>
           </div>
           <div id="rss-items-wrap" class="hidden">
             <div class="rss-items-toolbar">
@@ -1434,32 +1431,57 @@
         <p class="tab-sub" data-i18n="xtract_sub">Local media manipulation: extract audio, convert, trim, extract subtitles. No internet required.</p>
       </div>
       <div class="input-zone">
-        <button class="btn btn-primary" id="xtract-pick-btn" data-lucide-icon="upload" data-i18n="xtract_pick">Pick file</button>
-        <!-- Capture / Record live: context-aware sibling to Pick file. Label
-             + icon are updated by setXtractView() based on the active sub-view
-             (audio → mic / Record; video → monitor / Record screen; image →
-             camera / Screenshot). Opens #xtract-capture-modal. -->
-        <button class="btn btn-ghost" id="xtract-capture-btn" data-lucide-icon="camera" data-i18n-title="xtract_capture_screenshot" title="Take screenshot">
-          <span id="xtract-capture-label" data-i18n="xtract_capture_screenshot">Screenshot</span>
+        <button class="btn-icon btn-icon-primary" id="xtract-pick-btn" data-lucide-icon="upload" data-i18n-title="xtract_pick" title="Pick file"></button>
+        <!-- Capture / Record live: context-aware sibling to Pick file. Icon +
+             title are updated by refreshCaptureButton() based on the active
+             sub-view (audio → mic; video → monitor; image → camera). The
+             label span stays for that function but is visually hidden
+             (icon-only toolbar). Opens #xtract-capture-modal. -->
+        <button class="btn-icon" id="xtract-capture-btn" data-lucide-icon="camera" data-i18n-title="xtract_capture_screenshot" title="Take screenshot">
+          <span id="xtract-capture-label" class="visually-hidden" data-i18n="xtract_capture_screenshot">Screenshot</span>
         </button>
-        <!-- Clear: unloads the current file (closes trim/image editors, resets
-             the concat list). Hidden until a file is actually loaded so the
-             toolbar looks clean on initial entry. -->
-        <button class="btn-icon btn-icon-danger" id="xtract-clear-btn" data-lucide-icon="x" data-i18n-title="xtract_clear" title="Clear loaded file" hidden></button>
+        <!-- Clear: unloads the current file. Always visible, disabled until
+             a file is actually loaded. -->
+        <button class="btn-icon btn-icon-danger" id="xtract-clear-btn" data-lucide-icon="x" data-i18n-title="xtract_clear" title="Clear loaded file" disabled></button>
         <span class="xtract-file" id="xtract-file-info" data-i18n="xtract_no_file">No file loaded</span>
+        <span class="toolbar-divider" id="xtract-img-actions-sep" style="display:none"></span>
+        <!-- Image editor globals (image view only): undo every pending edit /
+             save the whole edit stack as ONE new file (name+format via modal). -->
+        <button class="btn-icon" id="xtract-img-reset-btn" data-lucide-icon="rotate-ccw" data-i18n-title="xtract_image_reset_all" title="Reset all changes" style="display:none" disabled></button>
+        <button class="btn-icon btn-icon-primary" id="xtract-img-save-btn" data-lucide-icon="save" data-i18n-title="xtract_image_save" title="Save" style="display:none" disabled></button>
+        <!-- Audio/video pipeline globals (audio/video view only): mirrors the
+             image editor's reset-all / save-all pair. Trim + Concat +
+             Audiotrack + Normalize stage into one non-destructive pipeline
+             (live on the shared waveform/video preview) instead of running
+             ffmpeg per tool; this pair undoes the whole stack or applies it
+             in one xtract:applyPipeline call. -->
+        <button class="btn-icon" id="xtract-av-reset-btn" data-lucide-icon="rotate-ccw" data-i18n-title="xtract_av_reset_all" title="Reset all changes" style="display:none" disabled></button>
+        <button class="btn-icon btn-icon-primary" id="xtract-av-save-btn" data-lucide-icon="save" data-i18n-title="xtract_av_save" title="Save" style="display:none" disabled></button>
         <span class="xtract-ffmpeg-status" id="xtract-ffmpeg-status"></span>
       </div>
       <!-- The Audio / Video switch is driven by the nav menu (Xtract > Audio
            or Xtract > Video). switchTab() reads data-xtract-view and updates
            [data-view] on the grid; CSS hides the cards that don't apply. -->
       <div class="xtract-grid" id="xtract-grid" data-view="audio">
-        <!-- 1+2+3) Unified Trim + Convert — full-width card. Audio view shows the
-             waveform editor + fade controls; Video view shows just the controls. -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="any" data-view="audio video">
-          <h3 class="xtract-card-title"><span data-lucide-icon="scissors"></span> <span data-i18n="xtract_card_trim">Trim &amp;/or Convert</span></h3>
-          <p class="xtract-card-help" data-i18n="xtract_card_trim_help">Cut a section, optionally apply fades, and convert to another format. Drag the markers on the waveform or type times.</p>
-          <!-- Waveform: only renders on Audio view + when a file is loaded.
-               WaveSurfer.js (renderer/vendor/wavesurfer.esm.js). -->
+        <!-- XTRACT > Audio / Video — unified single-window editor, same layout
+             as the image one: vertical tool rail | ONE shared stage (waveform /
+             video preview) | the active tool's panel. The old cascading cards
+             became the side panels — ids unchanged, bindings untouched. -->
+        <div class="av-editor-layout xtract-card-wide" id="av-editor-layout" data-tool="trim">
+          <div class="img-tool-rail" id="av-tool-rail">
+            <button class="btn-icon av-tool-btn active" data-av-tool="trim"      data-view="audio video" data-lucide-icon="scissors"   data-i18n-title="xtract_card_trim"      title="Trim &amp;/or Convert"></button>
+            <button class="btn-icon av-tool-btn"        data-av-tool="audio"     data-view="video"       data-lucide-icon="music"      data-i18n-title="xtract_card_audio"     title="Extract audio"></button>
+            <button class="btn-icon av-tool-btn"        data-av-tool="audiotrack" data-view="video"      data-lucide-icon="volume-x"   data-i18n-title="xtract_card_audiotrack" title="Audio track"></button>
+            <button class="btn-icon av-tool-btn"        data-av-tool="subs"      data-view="video"       data-lucide-icon="captions"   data-i18n-title="xtract_card_subs"      title="Extract subtitles"></button>
+            <button class="btn-icon av-tool-btn"        data-av-tool="frame"     data-view="video"       data-lucide-icon="image"      data-i18n-title="xtract_card_frame"     title="Frame export"></button>
+            <button class="btn-icon av-tool-btn"        data-av-tool="concat"    data-view="audio video" data-lucide-icon="plus"       data-i18n-title="xtract_card_concat"    title="Concat / Merge"></button>
+            <button class="btn-icon av-tool-btn"        data-av-tool="normalize" data-view="audio video" data-lucide-icon="volume-2"   data-i18n-title="xtract_card_normalize" title="Audio normalize"></button>
+            <button class="btn-icon av-tool-btn"        data-av-tool="tools"     data-view="audio video" data-lucide-icon="wrench"     data-i18n-title="xtract_card_tools"     title="Tools"></button>
+          </div>
+
+          <div class="img-editor-main" id="av-editor-main">
+          <!-- Shared stage: waveform + video/GIF preview. Only renders when a
+               file is loaded. WaveSurfer.js (renderer/vendor/wavesurfer.esm.js). -->
           <div class="trim-editor hidden" id="trim-editor">
             <!-- Video preview: visible only when an input video is loaded.
                  No native controls — playback toggles via the trim-play-btn
@@ -1483,6 +1505,13 @@
             </div>
             <div class="trim-gif-info hidden" id="xtract-gif-info"></div>
           </div>
+          </div><!-- /#av-editor-main -->
+
+          <div class="img-editor-side" id="av-editor-side">
+          <!-- Tool panel: Trim &/or Convert -->
+          <div class="xtract-card tool-active" data-applies-to="any" data-view="audio video" data-av-tool="trim">
+          <h3 class="xtract-card-title"><span data-lucide-icon="scissors"></span> <span data-i18n="xtract_card_trim">Trim &amp;/or Convert</span></h3>
+          <p class="xtract-card-help" data-i18n="xtract_card_trim_help">Cut a section, optionally apply fades, and convert to another format. Drag the markers on the waveform or type times.</p>
           <!-- Single control row: play | start | end | fade-in btn | fade-in dur | fade-out btn | fade-out dur | format | convert -->
           <div class="xtract-row trim-row">
             <button class="btn btn-ghost trim-play-btn" id="trim-play-btn" type="button" data-lucide-icon="play" title="Play selection">
@@ -1526,43 +1555,14 @@
             </button>
             <input type="number" id="trim-fadeout-dur" class="search-input plain-input xtract-fade-dur" min="0.1" max="60" step="0.1" value="2.0" />
             <span class="trim-row-spacer"></span>
+            <label class="field-label" data-i18n="xtract_format">Format</label>
             <select id="xtract-trim-format" class="profile-select"></select>
-            <button class="btn btn-primary" id="xtract-trim-btn" data-lucide-icon="rotate-cw" data-i18n="xtract_convert" disabled>Convert</button>
-          </div>
-          <div class="progress-bar-bg hidden" data-progress-for="trim"><div class="progress-bar"></div><span class="progress-bar-text">0%</span></div>
-        </div>
-
-        <!-- Split into tracks — for "YouTube full album" style sources where
-             a single audio (or video) file contains N consecutive songs.
-             Cascade detect: ffprobe chapters → ffmpeg silencedetect →
-             user edits the resulting list → split into one file per row. -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="any" data-view="audio video" data-needs-audio="true">
-          <h3 class="xtract-card-title"><span data-lucide-icon="scissors"></span> <span data-i18n="xtract_card_split">Split into tracks</span></h3>
-          <p class="xtract-card-help" data-i18n="xtract_card_split_help">Detect track boundaries automatically (from chapter metadata or by silence between songs) and split the file into one track per row. You can edit titles and remove unwanted segments before splitting.</p>
-          <div class="xtract-row split-detect-row">
-            <label class="img-field">
-              <span class="img-field-label" data-i18n="xtract_split_threshold">Silence threshold (dB)</span>
-              <input type="number" id="xtract-split-noise" class="search-input plain-input xtract-fade-dur" min="-90" max="0" step="1" value="-30" />
-            </label>
-            <label class="img-field">
-              <span class="img-field-label" data-i18n="xtract_split_minsilence">Min silence (s)</span>
-              <input type="number" id="xtract-split-mindur" class="search-input plain-input xtract-fade-dur" min="0.1" step="0.1" value="1.5" />
-            </label>
-            <span class="trim-row-spacer"></span>
-            <button class="btn btn-ghost" id="xtract-split-detect-btn" data-lucide-icon="search" data-i18n="xtract_split_detect" disabled>Detect tracks</button>
-          </div>
-          <div class="split-tracks-source muted" id="xtract-split-source"></div>
-          <div class="split-tracks-list" id="xtract-split-list"></div>
-          <div class="xtract-row split-actions-row">
-            <span class="trim-row-spacer"></span>
-            <button class="btn btn-ghost" id="xtract-split-add-btn" data-lucide-icon="plus" data-i18n="xtract_split_add">Add row</button>
-            <button class="btn btn-primary" id="xtract-split-run-btn" data-lucide-icon="check" data-i18n="xtract_split_run" disabled>Split & Save</button>
           </div>
         </div>
 
         <!-- Extract audio — video only. Placed right before Extract subtitles
              so both video-only extraction ops sit next to each other. -->
-        <div class="xtract-card" data-applies-to="video" data-view="video" data-needs-audio="true">
+        <div class="xtract-card" data-applies-to="video" data-view="video" data-needs-audio="true" data-av-tool="audio">
           <h3 class="xtract-card-title"><span data-lucide-icon="music"></span> <span data-i18n="xtract_card_audio">Extract audio</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_card_audio_help">Strip the audio track and re-encode to your preferred format.</p>
           <div class="xtract-row">
@@ -1579,11 +1579,25 @@
           <div class="progress-bar-bg hidden" data-progress-for="audio"><div class="progress-bar"></div><span class="progress-bar-text">0%</span></div>
         </div>
 
+        <!-- Audio track surgery — video only. Strip the original audio, or
+             swap it with an external audio file (video stream-copied). -->
+        <div class="xtract-card" data-applies-to="video" data-view="video" data-av-tool="audiotrack">
+          <h3 class="xtract-card-title"><span data-lucide-icon="volume-x"></span> <span data-i18n="xtract_card_audiotrack">Audio track</span></h3>
+          <p class="xtract-card-help" data-i18n="xtract_card_audiotrack_help">Remove the original audio track, or replace it with another audio file (the video stream is copied as-is, no re-encode). Staged live — applied together with the rest on Save.</p>
+          <div class="xtract-row">
+            <button class="btn btn-ghost fade-toggle-btn" id="xtract-mute-btn" type="button" data-lucide-icon="volume-x" data-i18n="xtract_audiotrack_remove" aria-pressed="false" disabled>Remove original audio</button>
+          </div>
+          <div class="xtract-row">
+            <button class="btn btn-ghost" id="xtract-replaudio-pick-btn" data-lucide-icon="upload" data-i18n="xtract_audiotrack_pick" disabled>Pick audio file</button>
+            <span id="xtract-replaudio-info" class="xtract-file" data-i18n="xtract_audiotrack_none">No audio selected</span>
+          </div>
+        </div>
+
         <!-- Extract subtitles — video only.
              Two options: extract embedded track (ffmpeg, no internet) OR
              search OpenSubtitles online by file hash. -->
-        <div class="xtract-card" data-applies-to="video" data-view="video">
-          <h3 class="xtract-card-title"><span data-lucide-icon="list"></span> <span data-i18n="xtract_card_subs">Extract subtitles</span></h3>
+        <div class="xtract-card" data-applies-to="video" data-view="video" data-av-tool="subs">
+          <h3 class="xtract-card-title"><span data-lucide-icon="captions"></span> <span data-i18n="xtract_card_subs">Extract subtitles</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_card_subs_help">Save the first embedded subtitle track as a .srt file.</p>
           <div class="xtract-row">
             <button class="btn btn-primary" id="xtract-subs-btn" data-lucide-icon="play" data-i18n="xtract_run" disabled>Run</button>
@@ -1593,8 +1607,8 @@
         </div>
 
         <!-- 5) Frame export — video only -->
-        <div class="xtract-card" data-applies-to="video" data-view="video">
-          <h3 class="xtract-card-title"><span data-lucide-icon="folder"></span> <span data-i18n="xtract_card_frame">Frame export</span></h3>
+        <div class="xtract-card" data-applies-to="video" data-view="video" data-av-tool="frame">
+          <h3 class="xtract-card-title"><span data-lucide-icon="image"></span> <span data-i18n="xtract_card_frame">Frame export</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_card_frame_help">Save a single frame at a given timestamp as PNG/JPG.</p>
           <div class="xtract-row">
             <label class="field-label" data-i18n="xtract_at">At</label>
@@ -1610,20 +1624,59 @@
         </div>
 
         <!-- 6) Concat — both views -->
-        <div class="xtract-card" data-applies-to="any" data-view="audio video">
+        <div class="xtract-card" data-applies-to="any" data-view="audio video" data-av-tool="concat">
           <h3 class="xtract-card-title"><span data-lucide-icon="plus"></span> <span data-i18n="xtract_card_concat">Concat / Merge</span></h3>
-          <p class="xtract-card-help" data-i18n="xtract_card_concat_help">Join the loaded file with one or more others of the same format.</p>
+          <p class="xtract-card-help" data-i18n="xtract_card_concat_help">Join the loaded file with one or more others of the same format, in the order shown below — reorder with the arrows, and optionally give each one its own fade-in and trim range for a quick DJ-style mix. Staged live, applied together with the rest on Save.</p>
           <div class="xtract-row concat-row">
             <button class="btn btn-ghost" id="xtract-concat-pick-btn" data-lucide-icon="upload" data-i18n="xtract_concat_pick">Add</button>
-            <span id="xtract-concat-info" class="xtract-file" data-i18n="xtract_concat_none">No extra files</span>
-            <button class="btn btn-primary" id="xtract-concat-btn" data-lucide-icon="play" data-i18n="xtract_run" disabled>Run</button>
           </div>
-          <div class="progress-bar-bg hidden" data-progress-for="concat"><div class="progress-bar"></div><span class="progress-bar-text">0%</span></div>
+          <ul class="concat-extras-list" id="xtract-concat-list"></ul>
         </div>
 
-        <!-- 7) Metadata dump — both views -->
-        <div class="xtract-card" data-applies-to="any" data-view="audio video">
-          <h3 class="xtract-card-title"><span data-lucide-icon="list"></span> <span data-i18n="xtract_card_meta">Metadata extract</span></h3>
+        <!-- 7) Tools — Split into tracks + Metadata extract, bundled into one
+             card/rail-entry since neither touches the file loaded above (Split
+             writes new files, Metadata writes a .json sidecar) — kept visually
+             apart from the Save-pipeline tools (Trim/Concat/Audiotrack/Normalize)
+             so they read as "standalone utilities", both views. Split still needs
+             an audio track (data-needs-audio scoped to its own sub-block, not the
+             whole card — see refreshXtractCards) — Metadata doesn't. -->
+        <div class="xtract-card" data-applies-to="any" data-view="audio video" data-av-tool="tools">
+          <h3 class="xtract-card-title"><span data-lucide-icon="wrench"></span> <span data-i18n="xtract_card_tools">Tools</span></h3>
+          <p class="xtract-card-help" data-i18n="xtract_card_tools_help">Standalone utilities — each writes its own separate output and is never part of the Save pipeline above.</p>
+
+          <h4 class="xtract-card-subtitle" data-i18n="xtract_card_split">Split into tracks</h4>
+          <!-- Split always reads/writes the ORIGINAL primary file directly
+               (window.api.audio.detectTracks/splitTracks take xtractInput,
+               nothing else) — it has no notion of Concat's staged extras.
+               Blocked whenever Concat has files queued so it can't be
+               mistaken for operating on the combined result. -->
+          <div data-needs-audio="true" data-block-on-concat="true">
+            <p class="xtract-card-help" data-i18n="xtract_card_split_help">Detect track boundaries automatically (from chapter metadata or by silence between songs) and split the file into one track per row. You can edit titles and remove unwanted segments before splitting.</p>
+            <p class="xtract-card-help xtract-warning hidden" id="xtract-split-concat-warning" data-i18n="xtract_split_concat_warning">Disabled while Concat has files queued below — Split always works on the original file alone, never on the combined result.</p>
+            <div class="xtract-row split-detect-row">
+              <label class="img-field">
+                <span class="img-field-label" data-i18n="xtract_split_threshold">Silence threshold (dB)</span>
+                <input type="number" id="xtract-split-noise" class="search-input plain-input xtract-fade-dur" min="-90" max="0" step="1" value="-30" />
+              </label>
+              <label class="img-field">
+                <span class="img-field-label" data-i18n="xtract_split_minsilence">Min silence (s)</span>
+                <input type="number" id="xtract-split-mindur" class="search-input plain-input xtract-fade-dur" min="0.1" step="0.1" value="1.5" />
+              </label>
+              <span class="trim-row-spacer"></span>
+              <button class="btn btn-ghost" id="xtract-split-detect-btn" data-lucide-icon="search" data-i18n="xtract_split_detect" disabled>Detect tracks</button>
+            </div>
+            <div class="split-tracks-source muted" id="xtract-split-source"></div>
+            <div class="split-tracks-list" id="xtract-split-list"></div>
+            <div class="xtract-row split-actions-row">
+              <span class="trim-row-spacer"></span>
+              <button class="btn btn-ghost" id="xtract-split-add-btn" data-lucide-icon="plus" data-i18n="xtract_split_add">Add row</button>
+              <button class="btn btn-primary" id="xtract-split-run-btn" data-lucide-icon="check" data-i18n="xtract_split_run" disabled>Split & Save</button>
+            </div>
+          </div>
+
+          <hr class="xtract-card-divider" />
+
+          <h4 class="xtract-card-subtitle" data-i18n="xtract_card_meta">Metadata extract</h4>
           <p class="xtract-card-help" data-i18n="xtract_card_meta_help">Dump container tags + stream info to a .json sidecar.</p>
           <div class="xtract-row">
             <button class="btn btn-primary" id="xtract-meta-btn" data-lucide-icon="play" data-i18n="xtract_run" disabled>Run</button>
@@ -1632,88 +1685,113 @@
         </div>
 
         <!-- 8) Audio normalize — both views -->
-        <div class="xtract-card" data-applies-to="any" data-view="audio video" data-needs-audio="true">
+        <div class="xtract-card" data-applies-to="any" data-view="audio video" data-needs-audio="true" data-av-tool="normalize">
           <h3 class="xtract-card-title"><span data-lucide-icon="volume-2"></span> <span data-i18n="xtract_card_normalize">Audio normalize</span></h3>
-          <p class="xtract-card-help" data-i18n="xtract_card_normalize_help">EBU R128 loudness normalisation (loudnorm filter). Two-pass for best results.</p>
+          <p class="xtract-card-help" data-i18n="xtract_card_normalize_help">EBU R128 loudness normalisation (loudnorm filter). Staged live — applied together with the rest on Save.</p>
           <div class="xtract-row">
-            <button class="btn btn-primary" id="xtract-normalize-btn" data-lucide-icon="play" data-i18n="xtract_run" disabled>Run</button>
+            <button class="btn btn-ghost fade-toggle-btn" id="xtract-normalize-toggle" type="button" data-lucide-icon="volume-2" data-i18n-title="xtract_normalize_enable" title="Enable normalize" aria-pressed="false" disabled>
+              <span class="lucide-slot"></span>
+            </button>
+            <label class="img-field">
+              <span class="img-field-label" data-i18n="xtract_normalize_target">Target (LUFS)</span>
+              <input type="number" id="xtract-normalize-target" class="search-input plain-input xtract-fade-dur" min="-40" max="-5" step="1" value="-14" />
+            </label>
           </div>
-          <div class="progress-bar-bg hidden" data-progress-for="normalize"><div class="progress-bar"></div><span class="progress-bar-text">0%</span></div>
+          <p class="xtract-card-help" data-i18n="xtract_normalize_preview_hint" style="margin-top:8px">Live preview on the waveform above and audible during playback (volume-based approximation) — the actual saved result always uses the full EBU R128 measurement.</p>
         </div>
+          </div><!-- /#av-editor-side -->
+        </div><!-- /.av-editor-layout -->
 
         <!-- XTRACT > Image — single-image crop. Canvas-style overlay on top
              of an <img> preview with mouse drag for rectangle selection.
              Bulk image ops (rename / convert / resize / EXIF / HEIC) live
              in the USE tab (Image Editor) instead. -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="image" data-view="image">
-          <h3 class="xtract-card-title"><span data-lucide-icon="scissors"></span> <span data-i18n="xtract_image_crop_title">Crop and/or Convert</span></h3>
-          <p class="xtract-card-help" data-i18n="xtract_image_crop_help">Drag a rectangle on the image to select the crop region. Use the aspect-ratio presets to constrain proportions. X/Y/W/H inputs stay in sync with the rectangle.</p>
-          <!-- Meta info strip — currently just the natural resolution badge,
-               but designed as a tag row so future info (file size, color
-               space, EXIF date, etc.) can pile in here without re-layouting
-               the crop coordinates at the bottom. -->
-          <div class="img-crop-meta-row" id="img-crop-meta-row">
-            <span class="img-crop-meta-tag" id="img-crop-natural-info"></span>
-            <span class="trim-row-spacer"></span>
-            <!-- Zoom controls: − / level / + / reset. Operate on the preview
-                 only — natural pixel coords in the X/Y/W/H inputs are unaffected. -->
-            <div class="img-crop-zoom-bar" id="img-crop-zoom-bar">
-              <button class="btn-icon img-crop-zoom-btn" id="img-crop-zoom-out" data-lucide-icon="minus" data-i18n-title="xtract_image_zoom_out" title="Zoom out"></button>
-              <span class="img-crop-zoom-label" id="img-crop-zoom-label">100%</span>
-              <button class="btn-icon img-crop-zoom-btn" id="img-crop-zoom-in"  data-lucide-icon="plus"  data-i18n-title="xtract_image_zoom_in"  title="Zoom in"></button>
-              <button class="btn-icon img-crop-zoom-btn" id="img-crop-zoom-fit" data-lucide-icon="maximize-2" data-i18n-title="xtract_image_zoom_fit" title="Fit"></button>
-            </div>
+        <!-- XTRACT > Image — unified single-window editor ("mini photoshop"):
+             a vertical tool rail on the left, ONE shared preview stage in the
+             middle, and the active tool's controls in a side panel. The old
+             cascading cards became the side panels — ids are unchanged so all
+             existing bindings keep working. -->
+        <div class="img-editor-layout xtract-card-wide" id="img-editor-layout" data-tool="crop">
+          <div class="img-tool-rail" id="img-tool-rail">
+            <button class="btn-icon img-tool-btn active" data-img-tool="crop"     data-lucide-icon="crop"                data-i18n-title="xtract_image_crop_title"     title="Crop and/or Convert"></button>
+            <button class="btn-icon img-tool-btn"        data-img-tool="fx"       data-lucide-icon="sliders-horizontal"  data-i18n-title="xtract_image_fx_title"       title="Effects"></button>
+            <button class="btn-icon img-tool-btn"        data-img-tool="recolor"  data-lucide-icon="droplet"             data-i18n-title="xtract_image_recolor_title"  title="Replace color"></button>
+            <button class="btn-icon img-tool-btn"        data-img-tool="rmbg"     data-lucide-icon="eraser"              data-i18n-title="xtract_image_rmbg_title"     title="Remove background (color)"></button>
+            <button class="btn-icon img-tool-btn"        data-img-tool="resize"   data-lucide-icon="maximize-2"          data-i18n-title="xtract_image_resize_title"   title="Resize"></button>
+            <button class="btn-icon img-tool-btn"        data-img-tool="annotate" data-lucide-icon="pencil"              data-i18n-title="xtract_image_annotate_title" title="Annotate"></button>
+            <button class="btn-icon img-tool-btn"        data-img-tool="compare"  data-lucide-icon="files"               data-i18n-title="xtract_image_compare_title"  title="Side-by-side compare"></button>
           </div>
-          <!-- Aspect-ratio presets — clicking one snaps the selection's
-               aspect; "Free" lets the user drag any shape. -->
-          <div class="xtract-row img-crop-aspect-row">
-            <label class="img-row-label" data-i18n="xtract_image_aspect">Aspect</label>
-            <button class="btn btn-ghost btn-sm img-aspect-btn active" data-aspect="free"  data-i18n="xtract_image_aspect_free">Free</button>
-            <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="1:1">1:1</button>
-            <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="4:3">4:3</button>
-            <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="16:9">16:9</button>
-            <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="9:16">9:16</button>
-            <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="3:2">3:2</button>
-          </div>
-          <!-- Image preview + crop overlay. The <img> shows the source
-               scaled to fit; the .img-crop-overlay covers the unselected
-               area with semi-transparent black; the .img-crop-rect is the
-               draggable selection (resizable from any edge/corner). -->
-          <div class="img-crop-stage hidden" id="img-crop-stage">
-            <div class="img-crop-wrap" id="img-crop-wrap">
-              <img id="img-crop-preview" alt="" draggable="false" />
-              <div class="img-crop-mask" id="img-crop-mask"></div>
-              <div class="img-crop-rect" id="img-crop-rect">
-                <span class="img-crop-handle h-tl"></span>
-                <span class="img-crop-handle h-tr"></span>
-                <span class="img-crop-handle h-bl"></span>
-                <span class="img-crop-handle h-br"></span>
+
+          <div class="img-editor-main">
+            <!-- Meta info strip: natural resolution + preview zoom controls. -->
+            <div class="img-crop-meta-row" id="img-crop-meta-row">
+              <span class="img-crop-meta-tag" id="img-crop-natural-info"></span>
+              <span class="trim-row-spacer"></span>
+              <div class="img-crop-zoom-bar" id="img-crop-zoom-bar">
+                <button class="btn-icon img-crop-zoom-btn" id="img-crop-zoom-out" data-lucide-icon="minus" data-i18n-title="xtract_image_zoom_out" title="Zoom out"></button>
+                <span class="img-crop-zoom-label" id="img-crop-zoom-label">100%</span>
+                <button class="btn-icon img-crop-zoom-btn" id="img-crop-zoom-in"  data-lucide-icon="plus"  data-i18n-title="xtract_image_zoom_in"  title="Zoom in"></button>
+                <button class="btn-icon img-crop-zoom-btn" id="img-crop-zoom-fit" data-lucide-icon="maximize-2" data-i18n-title="xtract_image_zoom_fit" title="Fit"></button>
               </div>
             </div>
+            <!-- Shared preview stage: <img> + crop overlays (crop tool only) +
+                 live-preview canvas (replace-color / remove-bg tools). -->
+            <div class="img-crop-stage hidden" id="img-crop-stage">
+              <div class="img-crop-wrap" id="img-crop-wrap">
+                <img id="img-crop-preview" alt="" draggable="false" />
+                <canvas id="img-live-canvas" class="img-live-canvas hidden"></canvas>
+                <div class="img-crop-mask" id="img-crop-mask"></div>
+                <div class="img-crop-rect" id="img-crop-rect">
+                  <span class="img-crop-handle h-tl"></span>
+                  <span class="img-crop-handle h-tr"></span>
+                  <span class="img-crop-handle h-bl"></span>
+                  <span class="img-crop-handle h-br"></span>
+                </div>
+              </div>
+            </div>
+            <!-- Annotate stage (Fabric.js) — takes over when the Annotate tool is active. -->
+            <div class="annotate-stage stage-off" id="annotate-stage">
+              <canvas id="annotate-canvas"></canvas>
+            </div>
+            <!-- Compare stage — takes over when the Compare tool is active. -->
+            <div class="img-compare-stage hidden stage-off" id="img-compare-stage">
+              <img id="img-compare-a" class="img-compare-layer" alt="A" draggable="false" />
+              <img id="img-compare-b" class="img-compare-layer img-compare-b" alt="B" draggable="false" />
+              <div class="img-compare-divider" id="img-compare-divider"></div>
+              <span class="img-compare-label img-compare-label-a">A</span>
+              <span class="img-compare-label img-compare-label-b">B</span>
+            </div>
           </div>
-          <!-- Numeric inputs — drag the rect, watch X/Y/W/H update; or
-               type values manually and the rect snaps to them. Coordinates
-               are in NATURAL image pixels (not display pixels). -->
-          <div class="xtract-row img-crop-coords-row">
-            <label class="img-row-label">X</label>
-            <input type="number" id="img-crop-x" class="search-input plain-input xtract-fade-dur" min="0" step="1" value="0" />
-            <label class="img-row-label">Y</label>
-            <input type="number" id="img-crop-y" class="search-input plain-input xtract-fade-dur" min="0" step="1" value="0" />
-            <label class="img-row-label">W</label>
-            <input type="number" id="img-crop-w" class="search-input plain-input xtract-fade-dur" min="1" step="1" value="0" />
-            <label class="img-row-label">H</label>
-            <input type="number" id="img-crop-h" class="search-input plain-input xtract-fade-dur" min="1" step="1" value="0" />
-            <span class="trim-row-spacer"></span>
-            <button class="btn btn-ghost btn-sm" id="img-crop-reset-btn" data-lucide-icon="rotate-cw" data-i18n="xtract_image_crop_reset">Reset</button>
-            <select id="img-crop-format" class="profile-select" title="Output format" data-i18n-title="xtract_image_output_format">
-              <option value="" data-i18n="xtract_image_format_same">Same as source</option>
-              <option value="jpg">JPG</option>
-              <option value="png">PNG</option>
-              <option value="webp">WEBP</option>
-            </select>
-            <button class="btn btn-primary" id="img-crop-apply-btn" data-lucide-icon="check" data-i18n="xtract_image_crop_apply" disabled>Crop &amp; Save</button>
-          </div>
-        </div>
+
+          <div class="img-editor-side">
+            <!-- Tool panel: Crop and/or Convert -->
+            <div class="xtract-card tool-active" data-applies-to="image" data-view="image" data-img-tool="crop">
+              <h3 class="xtract-card-title"><span data-lucide-icon="crop"></span> <span data-i18n="xtract_image_crop_title">Crop and/or Convert</span></h3>
+              <p class="xtract-card-help" data-i18n="xtract_image_crop_help">Drag a rectangle on the image to select the crop region. Use the aspect-ratio presets to constrain proportions. X/Y/W/H inputs stay in sync with the rectangle.</p>
+              <div class="xtract-row img-crop-aspect-row">
+                <label class="img-row-label" data-i18n="xtract_image_aspect">Aspect</label>
+                <button class="btn btn-ghost btn-sm img-aspect-btn active" data-aspect="free"  data-i18n="xtract_image_aspect_free">Free</button>
+                <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="1:1">1:1</button>
+                <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="4:3">4:3</button>
+                <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="16:9">16:9</button>
+                <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="9:16">9:16</button>
+                <button class="btn btn-ghost btn-sm img-aspect-btn" data-aspect="3:2">3:2</button>
+              </div>
+              <div class="xtract-row img-crop-coords-row">
+                <label class="img-row-label">X</label>
+                <input type="number" id="img-crop-x" class="search-input plain-input xtract-fade-dur" min="0" step="1" value="0" />
+                <label class="img-row-label">Y</label>
+                <input type="number" id="img-crop-y" class="search-input plain-input xtract-fade-dur" min="0" step="1" value="0" />
+                <label class="img-row-label">W</label>
+                <input type="number" id="img-crop-w" class="search-input plain-input xtract-fade-dur" min="1" step="1" value="0" />
+                <label class="img-row-label">H</label>
+                <input type="number" id="img-crop-h" class="search-input plain-input xtract-fade-dur" min="1" step="1" value="0" />
+              </div>
+              <div class="xtract-row tool-reset-row">
+                <span class="trim-row-spacer"></span>
+                <button class="btn btn-ghost btn-sm" id="img-crop-reset-btn" data-lucide-icon="rotate-cw" data-i18n="xtract_image_crop_reset">Reset</button>
+              </div>
+            </div>
 
         <!-- XTRACT > Image > Effects — Lightroom-lite editing.
              5 sliders (brightness / contrast / saturation / hue / blur)
@@ -1721,8 +1799,9 @@
              slider. Live preview uses CSS filters on the <img> (instant,
              zero IPC overhead); Apply sends the values to sharp which
              produces the actual file. -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="image" data-view="image">
-          <h3 class="xtract-card-title"><span data-lucide-icon="palette"></span> <span data-i18n="xtract_image_fx_title">Effects</span></h3>
+            <!-- Tool panel: Effects -->
+            <div class="xtract-card" data-applies-to="image" data-view="image" data-img-tool="fx">
+              <h3 class="xtract-card-title"><span data-lucide-icon="sliders-horizontal"></span> <span data-i18n="xtract_image_fx_title">Effects</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_image_fx_help">Live preview on the crop image above. Sliders are non-destructive until you click Apply — at that point sharp produces a new file next to the source. Combine with crop in either order: each apply reads from the saved file.</p>
           <div class="img-fx-grid">
             <label class="img-fx-slider-row">
@@ -1763,29 +1842,30 @@
             <button class="btn btn-ghost btn-sm img-fx-toggle-btn" id="img-fx-invert"    data-effect="invert"    data-i18n="xtract_image_fx_invert">Invert</button>
             <span class="trim-row-spacer"></span>
             <button class="btn btn-ghost btn-sm" id="img-fx-reset" data-lucide-icon="rotate-cw" data-i18n="xtract_image_fx_reset">Reset</button>
-            <button class="btn btn-primary" id="img-fx-apply" data-lucide-icon="check" data-i18n="xtract_image_fx_apply" disabled>Apply &amp; Save</button>
           </div>
         </div>
 
-        <!-- XTRACT > Image > Replace colour — swap one colour for another
-             (raw-pixel pass via images:replaceColor / sharp). Tolerance widens
-             the match to nearby shades. -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="image" data-view="image">
-          <h3 class="xtract-card-title"><span data-lucide-icon="droplet"></span> <span data-i18n="xtract_image_recolor_title">Replace color</span></h3>
+            <!-- Tool panel: Replace colour (live preview on the shared stage) -->
+            <div class="xtract-card" data-applies-to="image" data-view="image" data-img-tool="recolor">
+              <h3 class="xtract-card-title"><span data-lucide-icon="droplet"></span> <span data-i18n="xtract_image_recolor_title">Replace color</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_image_recolor_help">Swap one colour for another across the whole image. Raise the tolerance to also catch nearby shades.</p>
           <div class="xtract-row img-recolor-row">
             <label class="img-row-label" data-i18n="xtract_image_recolor_from">From</label>
-            <input type="color" id="img-recolor-from" class="img-recolor-swatch" value="#ff0000" />
+            <input type="color" id="img-recolor-from" class="img-recolor-swatch img-swatch-unset" value="#ff0000" />
+            <button class="btn-icon img-pick-btn" data-pick="img-recolor-from" data-lucide-icon="pipette" title="Pick color from image" data-i18n-title="xtract_image_pick_color"></button>
             <span class="img-recolor-arrow" aria-hidden="true">→</span>
             <label class="img-row-label" data-i18n="xtract_image_recolor_to">To</label>
-            <input type="color" id="img-recolor-to" class="img-recolor-swatch" value="#00ff00" />
-            <span class="trim-row-spacer"></span>
-            <button class="btn btn-primary" id="img-recolor-apply" data-lucide-icon="droplet" data-i18n="xtract_image_recolor_apply" disabled>Replace</button>
+            <input type="color" id="img-recolor-to" class="img-recolor-swatch img-swatch-unset" value="#00ff00" />
+            <button class="btn-icon img-pick-btn" data-pick="img-recolor-to" data-lucide-icon="pipette" title="Pick color from image" data-i18n-title="xtract_image_pick_color"></button>
           </div>
           <div class="xtract-row">
             <label class="img-row-label" data-i18n="xtract_image_recolor_tol">Tolerance</label>
             <input type="range" id="img-recolor-tol" min="0" max="100" step="1" value="10" class="img-fx-slider" />
             <span class="img-fx-value" id="img-recolor-tol-v">10%</span>
+          </div>
+          <div class="xtract-row tool-reset-row">
+            <span class="trim-row-spacer"></span>
+            <button class="btn btn-ghost btn-sm" id="img-recolor-reset" data-lucide-icon="rotate-cw" data-i18n="xtract_image_crop_reset">Reset</button>
           </div>
         </div>
 
@@ -1794,19 +1874,23 @@
              tolerance) to transparent and saves a PNG (images:removeBgColor /
              sharp). Solid-colour backgrounds only; arbitrary photos need the
              AI path (roadmap). -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="image" data-view="image">
-          <h3 class="xtract-card-title"><span data-lucide-icon="scissors"></span> <span data-i18n="xtract_image_rmbg_title">Remove background (color)</span></h3>
+            <!-- Tool panel: Remove background (live preview on the shared stage) -->
+            <div class="xtract-card" data-applies-to="image" data-view="image" data-img-tool="rmbg">
+              <h3 class="xtract-card-title"><span data-lucide-icon="eraser"></span> <span data-i18n="xtract_image_rmbg_title">Remove background (color)</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_image_rmbg_help">Make a solid-colour background transparent. Pick the background colour and raise the tolerance to also catch nearby shades. Saved as a PNG with transparency.</p>
           <div class="xtract-row img-recolor-row">
             <label class="img-row-label" data-i18n="xtract_image_rmbg_color">Background</label>
-            <input type="color" id="img-rmbg-color" class="img-recolor-swatch" value="#ffffff" />
-            <span class="trim-row-spacer"></span>
-            <button class="btn btn-primary" id="img-rmbg-apply" data-lucide-icon="scissors" data-i18n="xtract_image_rmbg_apply" disabled>Remove</button>
+            <input type="color" id="img-rmbg-color" class="img-recolor-swatch img-swatch-unset" value="#ffffff" />
+            <button class="btn-icon img-pick-btn" data-pick="img-rmbg-color" data-lucide-icon="pipette" title="Pick color from image" data-i18n-title="xtract_image_pick_color"></button>
           </div>
           <div class="xtract-row">
             <label class="img-row-label" data-i18n="xtract_image_recolor_tol">Tolerance</label>
             <input type="range" id="img-rmbg-tol" min="0" max="100" step="1" value="20" class="img-fx-slider" />
             <span class="img-fx-value" id="img-rmbg-tol-v">20%</span>
+          </div>
+          <div class="xtract-row tool-reset-row">
+            <span class="trim-row-spacer"></span>
+            <button class="btn btn-ghost btn-sm" id="img-rmbg-reset" data-lucide-icon="rotate-cw" data-i18n="xtract_image_crop_reset">Reset</button>
           </div>
         </div>
 
@@ -1816,8 +1900,9 @@
              through crop or batch mode. Either max W/H (one or both) or
              a percentage scale; mutually exclusive but the JS handles
              that defensively. -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="image" data-view="image">
-          <h3 class="xtract-card-title"><span data-lucide-icon="maximize-2"></span> <span data-i18n="xtract_image_resize_title">Resize</span></h3>
+            <!-- Tool panel: Resize -->
+            <div class="xtract-card" data-applies-to="image" data-view="image" data-img-tool="resize">
+              <h3 class="xtract-card-title"><span data-lucide-icon="maximize-2"></span> <span data-i18n="xtract_image_resize_title">Resize</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_image_resize_help">Change the image dimensions in pixels (max W or H, keeping aspect ratio) or by percentage of the current size. Leaves empty fields untouched. Uses sharp for high-quality downscaling.</p>
           <div class="xtract-row img-resize-row">
             <label class="img-field">
@@ -1832,8 +1917,10 @@
               <span class="img-field-label" data-i18n="xtract_image_resize_pct">Scale %</span>
               <input type="number" id="img-resize-pct" class="search-input plain-input xtract-fade-dur" min="1" max="200" step="1" placeholder="" />
             </label>
+          </div>
+          <div class="xtract-row tool-reset-row">
             <span class="trim-row-spacer"></span>
-            <button class="btn btn-primary" id="img-resize-apply" data-lucide-icon="check" data-i18n="xtract_image_resize_apply" disabled>Resize &amp; Save</button>
+            <button class="btn btn-ghost btn-sm" id="img-resize-reset" data-lucide-icon="rotate-cw" data-i18n="xtract_image_crop_reset">Reset</button>
           </div>
         </div>
 
@@ -1842,8 +1929,9 @@
              for redacting / replacing text on rasterised PDF pages, adding
              callouts to screenshots, etc. Not a real raster editor: all
              objects sit ON TOP of the image, not inside it. -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="image" data-view="image">
-          <h3 class="xtract-card-title"><span data-lucide-icon="palette"></span> <span data-i18n="xtract_image_annotate_title">Annotate</span></h3>
+            <!-- Tool panel: Annotate (Fabric canvas lives on the shared stage column) -->
+            <div class="xtract-card" data-applies-to="image" data-view="image" data-img-tool="annotate">
+              <h3 class="xtract-card-title"><span data-lucide-icon="pencil"></span> <span data-i18n="xtract_image_annotate_title">Annotate</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_image_annotate_help">Cover text or other regions with shapes (use Eyedropper to sample the background colour), then add new text on top. Save flattens everything into a single PNG.</p>
           <div class="xtract-row annotate-toolbar" id="annotate-toolbar">
             <button class="btn btn-ghost btn-sm annotate-tool-btn active" id="annotate-tool-select" data-tool="select" data-lucide-icon="grip-vertical" data-i18n-title="xtract_image_annotate_select" title="Select / Move"></button>
@@ -1862,14 +1950,14 @@
             </label>
             <button class="btn-icon" id="annotate-delete" data-lucide-icon="trash" data-i18n-title="xtract_image_annotate_delete" title="Delete selected" disabled></button>
           </div>
-          <div class="annotate-stage" id="annotate-stage">
-            <canvas id="annotate-canvas"></canvas>
-          </div>
           <div class="xtract-row annotate-actions-row">
             <span class="muted" id="annotate-hint" data-i18n="xtract_image_annotate_hint">Pick a tool, drag on the canvas. Click an object to select it for move / resize / delete.</span>
+          </div>
+          <!-- Annotations flatten into the global Save pipeline — no per-tool
+               save. Reset drops all overlay objects (image untouched). -->
+          <div class="xtract-row tool-reset-row">
             <span class="trim-row-spacer"></span>
-            <button class="btn btn-ghost btn-sm" id="annotate-clear" data-lucide-icon="rotate-cw" data-i18n="xtract_image_annotate_clear" disabled>Clear</button>
-            <button class="btn btn-primary"      id="annotate-save"  data-lucide-icon="check"     data-i18n="xtract_image_annotate_save"  disabled>Save</button>
+            <button class="btn btn-ghost btn-sm" id="annotate-clear" data-lucide-icon="rotate-cw" data-i18n="xtract_image_crop_reset" disabled>Reset</button>
           </div>
         </div>
 
@@ -1878,8 +1966,9 @@
              two are overlaid with a draggable vertical divider showing how
              much of "after" reveals on top of "before". Pure HTML/CSS, no
              backend needed — purely a visual comparison tool. -->
-        <div class="xtract-card xtract-card-wide" data-applies-to="image" data-view="image">
-          <h3 class="xtract-card-title"><span data-lucide-icon="files"></span> <span data-i18n="xtract_image_compare_title">Side-by-side compare</span></h3>
+            <!-- Tool panel: Compare (slider stage lives on the shared stage column) -->
+            <div class="xtract-card" data-applies-to="image" data-view="image" data-img-tool="compare">
+              <h3 class="xtract-card-title"><span data-lucide-icon="files"></span> <span data-i18n="xtract_image_compare_title">Side-by-side compare</span></h3>
           <p class="xtract-card-help" data-i18n="xtract_image_compare_help">Load a second image (usually the "after" version) and drag the divider to compare. Both images need the same dimensions for the comparison to be meaningful.</p>
           <div class="xtract-row">
             <button class="btn btn-ghost" id="img-compare-pick" data-lucide-icon="upload"><span data-i18n="xtract_image_compare_pick">Pick second image</span></button>
@@ -1888,18 +1977,10 @@
             <button class="btn btn-ghost btn-sm" id="img-compare-swap" data-lucide-icon="rotate-cw" disabled><span data-i18n="xtract_image_compare_swap">Swap A/B</span></button>
             <button class="btn btn-ghost btn-sm" id="img-compare-reset" data-lucide-icon="x" disabled><span data-i18n="xtract_image_compare_reset">Clear</span></button>
           </div>
-          <!-- Slider stage: img A and img B layered; B has clip-path that
-               reveals only the right portion of the image based on slider
-               position. The divider line follows the slider value. -->
-          <div class="img-compare-stage hidden" id="img-compare-stage">
-            <img id="img-compare-a" class="img-compare-layer" alt="A" draggable="false" />
-            <img id="img-compare-b" class="img-compare-layer img-compare-b" alt="B" draggable="false" />
-            <div class="img-compare-divider" id="img-compare-divider"></div>
-            <span class="img-compare-label img-compare-label-a">A</span>
-            <span class="img-compare-label img-compare-label-b">B</span>
-          </div>
           <input type="range" id="img-compare-slider" class="img-fx-slider" min="0" max="100" step="0.5" value="50" disabled />
         </div>
+          </div><!-- /.img-editor-side -->
+        </div><!-- /.img-editor-layout -->
       </div>
       <div id="xtract-log" class="activity-log"></div>
     </section>
@@ -2011,7 +2092,7 @@
             <label class="toggle"><input type="checkbox" id="cfg-notify" /><span class="toggle-track"></span></label>
           </div>
           <div class="field-group toggle-group">
-            <label class="field-label" data-i18n="settings_mp4_compat" data-i18n-title="settings_mp4_compat_help" title="Prefer H.264 video + AAC audio inside MP4 for QuickTime / iMovie / iPhone compatibility. Off = smallest file (VP9/AV1 on YouTube) but Mac default players can't read it.">MP4 universal compatibility (H.264 + AAC)</label>
+            <label class="field-label" data-i18n="settings_mp4_compat" data-i18n-title="settings_mp4_compat_help" title="Prefer H.264 video + AAC audio inside MP4 for QuickTime / iMovie / iPhone compatibility. Off = smallest file (VP9/AV1 where available) but Mac default players can't read it.">MP4 universal compatibility (H.264 + AAC)</label>
             <label class="toggle"><input type="checkbox" id="cfg-mp4-compat" /><span class="toggle-track"></span></label>
           </div>
           <div class="field-group toggle-group">
@@ -2213,7 +2294,66 @@
             <input type="password" id="cfg-socks-pass" class="search-input plain-input" />
           </div>
         </div>
-        <small class="field-help" data-i18n="settings_socks_help" style="margin:0 0 8px">Routes all FLUX traffic (IRC, yt-dlp downloads, RSS, MusicBrainz, Spotify, etc.) through the proxy. Examples: 127.0.0.1:9050 for Tor, or a SOCKS5 endpoint from your VPN provider.</small>
+        <small class="field-help" data-i18n="settings_socks_help" style="margin:0 0 8px">Routes all FLUX traffic (IRC, yt-dlp downloads, RSS, MusicBrainz, playlist lookups, etc.) through the proxy. Examples: 127.0.0.1:9050 for Tor, or a SOCKS5 endpoint from your VPN provider.</small>
+      </div>
+
+      <!-- Mobile — phone → FLUX companion. Two independent transports
+           (Telegram bot + LAN mini web server) sharing one command dispatcher
+           on the main-process side. See modules/registry.json id "remote".
+           Downloads/torrents triggered from here land in the normal History
+           (kind media/torrent, source Telegram/LAN) — no separate log here. -->
+      <div class="settings-section" style="margin-bottom:16px" data-group="integrations">
+        <h3 class="settings-section-title" data-i18n="settings_mobile">Mobile</h3>
+        <p style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px" data-i18n="remote_sub">Invia un URL, cerca un torrent o chiedi un trailer da un telefono associato.</p>
+
+        <h4 class="remote-subtitle" data-i18n="remote_telegram_title">Bot Telegram</h4>
+        <p style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px" data-i18n="remote_telegram_desc">Incolla qui il token ottenuto da @BotFather, poi associa il telefono con un codice a 6 cifre.</p>
+        <div class="remote-inline-row">
+          <div class="field-group" style="flex:1">
+            <label class="field-label" data-i18n="remote_telegram_token">Token bot</label>
+            <input type="password" id="remote-bot-token" class="search-input plain-input" autocomplete="off" placeholder="123456789:AAExample-Token" />
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="remote-token-save-btn" data-i18n="remote_save_token">Salva</button>
+        </div>
+        <div class="remote-status-row">
+          <span class="dot dot-status" id="remote-telegram-dot"></span>
+          <span id="remote-telegram-status-text" data-i18n="remote_telegram_status_off">Non configurato</span>
+        </div>
+        <div class="field-group">
+          <button type="button" class="btn btn-primary btn-sm" id="remote-pair-code-btn" data-lucide-icon="key-round" data-i18n="remote_generate_code">Genera codice di pairing</button>
+          <span id="remote-pair-code-display" class="remote-pair-code hidden"></span>
+        </div>
+
+        <div class="field-group remote-guide-buttons">
+          <button type="button" class="btn btn-ghost btn-sm" id="remote-pairing-guide-btn" data-lucide-icon="book-open" data-i18n="remote_guide_pairing_btn">Guida: crea il bot e associa un telefono</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="remote-commands-guide-btn" data-lucide-icon="terminal" data-i18n="remote_guide_commands_btn">Guida: comandi disponibili</button>
+        </div>
+
+        <ul class="remote-list" id="remote-whitelist-list"></ul>
+
+        <hr class="remote-divider" />
+
+        <h4 class="remote-subtitle" data-i18n="remote_lan_title">Server LAN</h4>
+        <p style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px" data-i18n="remote_lan_desc">Solo rete locale — mai raggiungibile da internet. Pairing via QR o PIN manuale.</p>
+        <div class="field-group toggle-group">
+          <label class="field-label" data-i18n="remote_lan_enable">Attiva server LAN</label>
+          <label class="toggle"><input type="checkbox" id="remote-lan-enabled" /><span class="toggle-track"></span></label>
+        </div>
+        <div class="field-group">
+          <label class="field-label" data-i18n="remote_lan_port">Porta</label>
+          <input type="number" id="remote-lan-port" class="search-input plain-input" style="max-width:120px" min="1024" max="65535" />
+        </div>
+        <div class="field-group">
+          <button type="button" class="btn btn-primary btn-sm" id="remote-lan-qr-btn" data-lucide-icon="qr-code" data-i18n="remote_generate_qr">Genera QR</button>
+        </div>
+        <div id="remote-lan-pairing" class="remote-lan-pairing hidden">
+          <img id="remote-lan-qr-img" alt="QR pairing" />
+          <div class="remote-lan-pairing-info">
+            <span id="remote-lan-url" class="remote-lan-url"></span>
+            <span id="remote-lan-pin" class="remote-lan-pin"></span>
+          </div>
+        </div>
+        <ul class="remote-list" id="remote-lan-devices-list"></ul>
       </div>
 
       <!-- Music Recognition -->
@@ -2353,6 +2493,49 @@
           </div>
         </div>
       </div>
+
+      <!-- Mobile companion — pairing guide (moved out of the inline Settings
+           text into a popup so the Mobile section stays short; content is the
+           same bot-creation + pairing walkthrough as before). -->
+      <div id="remote-pairing-guide-modal" class="modal hidden" data-dismissible="true">
+        <div class="modal-box modal-box-lg">
+          <h3 class="modal-title"><span data-lucide-icon="key-round"></span> <span data-i18n="remote_guide_title">Come creare il bot Telegram</span></h3>
+          <ol class="remote-guide-list">
+            <li data-i18n="remote_guide_step1">Apri Telegram, cerca @BotFather e avvia una chat.</li>
+            <li data-i18n="remote_guide_step2">Invia /newbot, scegli un nome e uno username univoco che termini in "bot" (es. mio_flux_bot).</li>
+            <li data-i18n="remote_guide_step3">BotFather risponde con un token (una stringa tipo 123456789:AAExample-Token) — copialo.</li>
+            <li data-i18n="remote_guide_step4">Incollalo nel campo qui sopra e premi "Salva".</li>
+            <li data-i18n="remote_guide_step5">Premi "Genera codice di pairing", poi apri una chat col tuo bot dal telefono e invia il codice a 6 cifre come primo messaggio.</li>
+            <li data-i18n="remote_guide_step6">Fatto — da quella chat puoi inviare un URL, cercare un torrent o scrivere "trailer &lt;titolo&gt;".</li>
+          </ol>
+          <p class="remote-guide-note" data-i18n="remote_guide_note">Il token è come una password: non condividerlo. Solo le chat associate col codice possono comandare FLUX.</p>
+          <div class="modal-actions">
+            <button class="btn btn-primary" id="remote-pairing-guide-close" data-i18n="rss_close">Chiudi</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile companion — available-commands guide (popup). Documents both
+           the explicit slash commands and their free-text equivalents. -->
+      <div id="remote-commands-guide-modal" class="modal hidden" data-dismissible="true">
+        <div class="modal-box modal-box-lg">
+          <h3 class="modal-title"><span data-lucide-icon="terminal"></span> <span data-i18n="remote_guide_commands_title">Cosa puoi fare</span></h3>
+          <ul class="remote-guide-list">
+            <li data-i18n="remote_guide_cmd1">/download &lt;url&gt; [formato] — scarica un URL. Formati: 1080p, 720p, mp3, mkv. Senza formato, scegli da un menu.</li>
+            <li data-i18n="remote_guide_cmd2">/torrent &lt;titolo&gt; — cerca un torrent: rispondi con un numero per scaricarlo, o scrivi "altri" per i risultati successivi.</li>
+            <li data-i18n="remote_guide_cmd3">/trailer &lt;titolo&gt; — cerca il trailer su YouTube.</li>
+            <li data-i18n="remote_guide_cmd4">Incolla un link magnet: → lo scarica subito.</li>
+            <li data-i18n="remote_guide_cmd5">Condividi un link Shazam (shazam.com/track/...) → cerca il torrent del brano riconosciuto.</li>
+            <li data-i18n="remote_guide_cmd7">/login &lt;codice&gt; — associa un nuovo telefono a FLUX (dalla sua chat, con il codice generato qui sopra).</li>
+            <li data-i18n="remote_guide_cmd8">/help — richiama in ogni momento questo elenco di comandi.</li>
+            <li data-i18n="remote_guide_cmd6">Se hai attivato l'invio al client torrent (qui sotto in Integrazioni → Invia al client), i torrent scelti da qui partono direttamente lì invece di salvare solo il file.</li>
+            <li data-i18n="remote_guide_cmd9">Non servono i comandi: funziona anche il testo semplice, come prima.</li>
+          </ul>
+          <div class="modal-actions">
+            <button class="btn btn-primary" id="remote-commands-guide-close" data-i18n="rss_close">Chiudi</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Video preview modal — when previewing a video URL (Media/Queue) we
@@ -2370,6 +2553,51 @@
         <div class="modal-actions">
           <button class="btn btn-ghost" id="video-preview-close" data-i18n="rss_close">Close</button>
           <button class="btn btn-primary" id="video-preview-download" data-lucide-icon="download"><span data-i18n="media_download">Download</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Image editor SAVE modal — asks the output name + format before the
+         non-destructive edit stack is applied (images:applyPipeline). -->
+    <div id="img-save-modal" class="modal hidden" data-dismissible="true">
+      <div class="modal-box">
+        <h3 class="modal-title"><span data-lucide-icon="save"></span> <span data-i18n="xtract_image_save_modal_title">Save image</span></h3>
+        <div class="xtract-row">
+          <button class="btn-icon" id="img-save-dir-btn" data-lucide-icon="folder-open" title="Destination folder" data-i18n-title="xtract_image_save_dir"></button>
+          <input type="text" id="img-save-name" class="search-input plain-input" style="flex:1" autocomplete="off" spellcheck="false" data-i18n-ph="xtract_image_save_name" placeholder="File name" />
+        </div>
+        <p class="xtract-card-help img-save-dir-label" id="img-save-dir-label"></p>
+        <div class="xtract-row img-save-format-row">
+          <label class="fmt-pill"><input type="radio" name="img-save-format" value="" checked /><span data-i18n="xtract_image_format_same">Same as source</span></label>
+          <label class="fmt-pill"><input type="radio" name="img-save-format" value="jpg" /><span>JPG</span></label>
+          <label class="fmt-pill"><input type="radio" name="img-save-format" value="png" /><span>PNG</span></label>
+          <label class="fmt-pill"><input type="radio" name="img-save-format" value="webp" /><span>WEBP</span></label>
+          <label class="fmt-pill"><input type="radio" name="img-save-format" value="avif" /><span>AVIF</span></label>
+        </div>
+        <p class="xtract-card-help hidden" id="img-save-png-note" data-i18n="xtract_image_save_png_note">Transparency active — PNG format is forced.</p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="img-save-cancel" data-i18n="downloads_cancel">Cancel</button>
+          <button class="btn btn-primary" id="img-save-confirm" data-lucide-icon="save"><span data-i18n="xtract_image_save">Save</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio/Video editor SAVE modal — asks the output name + format before
+         the staged pipeline (concat → trim → audiotrack → normalize) is
+         applied in one xtract:applyPipeline call. Mirrors img-save-modal. -->
+    <div id="av-save-modal" class="modal hidden" data-dismissible="true">
+      <div class="modal-box">
+        <h3 class="modal-title"><span data-lucide-icon="save"></span> <span data-i18n="xtract_av_save_modal_title">Save</span></h3>
+        <div class="xtract-row">
+          <button class="btn-icon" id="av-save-dir-btn" data-lucide-icon="folder-open" title="Destination folder" data-i18n-title="xtract_image_save_dir"></button>
+          <input type="text" id="av-save-name" class="search-input plain-input" style="flex:1" autocomplete="off" spellcheck="false" data-i18n-ph="xtract_image_save_name" placeholder="File name" />
+        </div>
+        <p class="xtract-card-help img-save-dir-label" id="av-save-dir-label"></p>
+        <ul class="concat-extras-list" id="av-save-steps"></ul>
+        <div class="progress-bar-bg hidden" id="av-save-progress"><div class="progress-bar"></div><span class="progress-bar-text">0%</span></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="av-save-cancel" data-i18n="downloads_cancel">Cancel</button>
+          <button class="btn btn-primary" id="av-save-confirm" data-lucide-icon="save"><span data-i18n="xtract_image_save">Save</span></button>
         </div>
       </div>
     </div>

@@ -136,6 +136,15 @@ const DEFAULT_CONFIG = {
   sendnzb_pass: '',                    // NZBGet password (SABnzbd ignores this)
   sendnzb_category: '',                // optional SAB category / NZBGet category
 
+  // Remote companion (phone → FLUX) — Telegram bot + LAN mini web server.
+  // Pairing codes/PINs themselves are short-lived and kept in memory only
+  // (see remote module section), never persisted here.
+  remote_bot_token:   '',              // from @BotFather, pasted once in the Remote panel
+  remote_whitelist:   [],              // [{ chatId, label, pairedAt }] — Telegram chats allowed to command FLUX
+  remote_lan_enabled: false,           // LAN mini web server toggle — never auto-started
+  remote_lan_port:    8765,
+  remote_lan_devices: [],              // [{ token, label, pairedAt }] — paired LAN devices
+
   // IRC/XDCC defaults — bound to the new IRC tab. Single saved server keeps
   // the UI simple; a future iteration can add multi-network support.
   irc_server: '',                      // irc.example.net
@@ -665,7 +674,17 @@ function createMainWindow(preload, indexHtml) {
       if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     }, remaining);
   };
-  ipcMain.handleOnce('app:ready', () => { revealMainWindow(); return true; });
+  ipcMain.handleOnce('app:ready', () => {
+    revealMainWindow();
+    // The renderer can route files now — flush anything that arrived during
+    // boot (cold "Open with" launch args, early macOS open-file events).
+    rendererReadyForFiles = true;
+    if (pendingOpenFiles.length && mainWindow && !mainWindow.isDestroyed()) {
+      log('INFO', `open-with: flushing ${pendingOpenFiles.length} boot file(s) → renderer`);
+      safeSend(mainWindow.webContents, 'app:openFiles', pendingOpenFiles.splice(0));
+    }
+    return true;
+  });
   mainWindow.once('ready-to-show', () => {
     // Grace period — give the renderer a moment to call app:ready first.
     setTimeout(revealMainWindow, 1500);
@@ -689,13 +708,63 @@ log('INFO', `resourcesPath=${process.resourcesPath || 'n/a'}`);
 log('INFO', `userData=${USER_DATA}`);
 log('INFO', `cmdline args=${JSON.stringify(process.argv)}`);
 
-app.on('before-quit',   () => log('INFO', 'app:before-quit'));
+app.on('before-quit',   () => { stopTelegramPolling(); stopLanServer(); log('INFO', 'app:before-quit'); });
 app.on('will-quit',     () => log('INFO', 'app:will-quit'));
 app.on('quit',          (_, code) => log('INFO', `app:quit code=${code}`));
-app.on('second-instance', () => log('INFO', 'app:second-instance (another launch attempted)'));
+// ─── OS "OPEN WITH" INTEGRATION ──────────────────────────────────────────────
+// The installer registers file associations (package.json → build.
+// fileAssociations); files then arrive as launch argv (Win/Linux), via the
+// second-instance argv when FLUX is already running, or through the macOS
+// open-file event. Routing reuses the renderer's drag&drop logic
+// ('app:openFiles' → handleDroppedFiles), so files land in the right tab.
+const OPEN_WITH_RE = /\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|mp4|mkv|webm|mov|avi|m4v|flv|wmv|gif|jpg|jpeg|png|webp|avif|tiff?|bmp|heic|heif|svg|pdf)$/i;
+let pendingOpenFiles = [];
+let rendererReadyForFiles = false;
+
+function collectOpenFileArgs(argv) {
+  // Skip the executable, electron switches, and the dev app-path arg ('.').
+  return (argv || []).slice(1)
+    .filter(a => a && !a.startsWith('-') && a !== '.' && OPEN_WITH_RE.test(a))
+    .filter(a => { try { return fs.existsSync(a); } catch { return false; } });
+}
+
+function dispatchOpenFiles(paths) {
+  if (!paths || !paths.length) return;
+  log('INFO', `open-with: ${paths.length} file(s) → ${rendererReadyForFiles ? 'renderer' : 'queued for boot'}`);
+  if (rendererReadyForFiles && mainWindow && !mainWindow.isDestroyed()) {
+    safeSend(mainWindow.webContents, 'app:openFiles', paths);
+  } else {
+    // Renderer not up yet (cold "Open with" launch) — flushed on app:ready.
+    pendingOpenFiles.push(...paths);
+  }
+}
+
+// Single instance: a second launch (e.g. Explorer "Open with" while FLUX is
+// already running) forwards its file args here and focuses the window.
+if (!app.requestSingleInstanceLock()) {
+  log('INFO', 'app: another instance holds the lock — forwarding argv and quitting');
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => {
+    log('INFO', 'app:second-instance (another launch attempted)');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+    dispatchOpenFiles(collectOpenFileArgs(argv));
+  });
+}
+// macOS: Finder delivers files via open-file (may fire before app is ready).
+app.on('open-file', (e, p) => {
+  e.preventDefault();
+  if (OPEN_WITH_RE.test(String(p || ''))) dispatchOpenFiles([p]);
+});
 
 app.whenReady().then(() => {
   log('INFO', 'app:whenReady');
+  // Cold "Open with" launch: media paths ride in on process.argv (queued
+  // here, delivered to the renderer on app:ready).
+  pendingOpenFiles.push(...collectOpenFileArgs(process.argv));
   // Probe the splash audio's duration in parallel with everything else.
   // The dwell calculation downstream waits up to its default (5 s) before
   // reading SPLASH_MIN_MS; the probe finishes in ~100-300 ms so the value
@@ -708,6 +777,7 @@ app.whenReady().then(() => {
   createWindow();
   startScheduler();
   initAutoUpdater();
+  syncRemoteServicesWithConfig(loadConfig());
   // Forward system theme changes (Windows/Mac) to renderer for 'auto' mode live update.
   nativeTheme.on('updated', () => {
     log('INFO', `nativeTheme:updated shouldUseDarkColors=${nativeTheme.shouldUseDarkColors}`);
@@ -1118,6 +1188,59 @@ async function fetchJSONWithUA(url, ua, timeout = 15000) {
   });
 }
 
+// Text sibling of fetchJSONWithUA — same Electron net preference, returns the
+// raw body (HTML/JS). Used by the SoundCloud client_id scraper.
+async function httpGetText(url, { ua = 'FLUX/1.0.0', accept = 'text/html', timeout = 15000 } = {}) {
+  const res = await httpGetStream(url, { ua, accept, timeout });
+  return new Promise((resolve, reject) => {
+    if (res.statusCode !== 200) { try { res.resume && res.resume(); } catch {} return reject(new Error(`HTTP ${res.statusCode}`)); }
+    let d = '';
+    res.on('data', c => d += c);
+    res.on('end', () => resolve(d));
+    res.on('error', reject);
+  });
+}
+
+// POST counterpart of fetchJSONWithUA — same Electron `net` preference (OS
+// cert store + system proxy). Needed by APIs that only accept POST bodies
+// (YouTube's Innertube endpoint).
+function httpPostJSON(url, body, { ua = 'FLUX/1.0.0', timeout = 15000 } = {}) {
+  const payload = JSON.stringify(body);
+  let electronNet = null;
+  try { electronNet = require('electron').net; } catch { /* not in Electron */ }
+  return new Promise((resolve, reject) => {
+    const readBody = res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+        try { resolve(JSON.parse(d)); } catch { reject(new Error(`Invalid JSON: ${d.substring(0, 80)}`)); }
+      });
+      res.on('error', reject);
+    };
+    if (electronNet) {
+      const req = electronNet.request({ url, method: 'POST', redirect: 'follow' });
+      req.setHeader('User-Agent', ua);
+      req.setHeader('Content-Type', 'application/json');
+      const timer = setTimeout(() => { try { req.abort(); } catch {} reject(new Error('Timeout')); }, timeout);
+      req.on('response', res => { clearTimeout(timer); readBody(res); });
+      req.on('error', e => { clearTimeout(timer); reject(e); });
+      req.write(payload);
+      req.end();
+    } else {
+      const mod = url.startsWith('https') ? require('https') : require('http');
+      const req = mod.request(url, {
+        method: 'POST', timeout,
+        headers: { 'User-Agent': ua, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      }, readBody);
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+      req.write(payload);
+      req.end();
+    }
+  });
+}
+
 async function fetchBinary(url, timeout = 20000, _redirects = 0) {
   if (_redirects > 5) throw new Error('Too many redirects');
   const mod = url.startsWith('https') ? require('https') : require('http');
@@ -1137,6 +1260,61 @@ async function fetchBinary(url, timeout = 20000, _redirects = 0) {
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
   });
 }
+
+// ─── DROPPED-CONTENT IMPORT (cross-app drag & drop) ──────────────────────────
+// Files dragged in from another app (typically an image dragged out of a
+// browser) have no disk path — the renderer either forwards the File's bytes
+// here, or asks us to download the drag's source URL (Electron net → OS cert
+// store + system proxy, same rationale as httpGetStream).
+const DROPPED_DIR = () => {
+  const dir = path.join(app.getPath('userData'), 'dropped');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+};
+const sanitizeDroppedName = n =>
+  String(n || '').replace(/[^\w.\- ]+/g, '_').slice(-80);
+
+ipcMain.handle('file:saveDroppedBuffer', (_, { name, data } = {}) => {
+  try {
+    if (!data || !data.byteLength) return { ok: false, error: 'empty payload' };
+    const safe = sanitizeDroppedName(name) || 'dropped';
+    const dest = path.join(DROPPED_DIR(), `${Date.now()}_${safe}`);
+    fs.writeFileSync(dest, Buffer.from(data));
+    return { ok: true, path: dest };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('file:importUrl', async (_, url) => {
+  try {
+    if (!/^https?:\/\//i.test(String(url || ''))) return { ok: false, error: 'invalid URL' };
+    const res = await httpGetStream(url, { ua: RELATED_BROWSER_UA, accept: '*/*', timeout: 25000 });
+    if (res.statusCode !== 200) { try { res.resume && res.resume(); } catch {} return { ok: false, error: `HTTP ${res.statusCode}` }; }
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      res.on('data', c => chunks.push(Buffer.from(c)));
+      res.on('end', resolve);
+      res.on('error', reject);
+    });
+    const buf = Buffer.concat(chunks);
+    if (!buf.length) return { ok: false, error: 'empty response' };
+    const mime = String(res.headers?.['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const extFromMime = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+      'image/avif': 'avif', 'image/bmp': 'bmp', 'image/svg+xml': 'svg', 'image/tiff': 'tiff'
+    }[mime];
+    let name = '';
+    try { name = decodeURIComponent(new URL(url).pathname.split('/').pop() || ''); } catch { /* keep '' */ }
+    name = sanitizeDroppedName(name);
+    if (!/\.[a-z0-9]{2,5}$/i.test(name)) name = (name || 'dropped') + '.' + (extFromMime || 'bin');
+    const dest = path.join(DROPPED_DIR(), `${Date.now()}_${name}`);
+    fs.writeFileSync(dest, buf);
+    return { ok: true, path: dest, mime };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 // ─── SONG RECOGNITION (ICY metadata + AcoustID via fpcalc) ───────────────────
 function getFpcalcPath() {
@@ -1913,6 +2091,114 @@ ipcMain.handle('images:applyEffects', async (_, {
   }
 });
 
+// XTRACT > Image — non-destructive editor SAVE. Applies the whole pending
+// edit stack (crop → effects → replace-color → remove-bg → resize) in ONE
+// sharp pass, chaining in-memory buffers: no intermediate files, one output.
+// Recipes are copies of the single-op handlers above — keep them in sync.
+ipcMain.handle('images:applyPipeline', async (_, { input, inputData, edits = {}, outputName, outputDir }) => {
+  const sharp = getSharp();
+  if (!sharp) return { ok: false, error: 'sharp not available' };
+  try {
+    const hex = h => { h = String(h || '').replace('#', ''); return [parseInt(h.slice(0, 2), 16) || 0, parseInt(h.slice(2, 4), 16) || 0, parseInt(h.slice(4, 6), 16) || 0]; };
+    const steps = [];
+    // inputData = flattened annotate canvas (PNG bytes at natural resolution)
+    // — when present it replaces the file as the pipeline source, so all
+    // other edits apply on top of the annotations.
+    let pipe = sharp(inputData ? Buffer.from(inputData) : input).rotate();
+    if (inputData) steps.push('annotate');
+
+    // 1. Crop (natural-pixel rect from the renderer)
+    if (edits.crop && edits.crop.w > 0 && edits.crop.h > 0) {
+      pipe = pipe.extract({
+        left:   Math.max(0, Math.round(edits.crop.x)),
+        top:    Math.max(0, Math.round(edits.crop.y)),
+        width:  Math.max(1, Math.round(edits.crop.w)),
+        height: Math.max(1, Math.round(edits.crop.h))
+      });
+      steps.push('crop');
+    }
+
+    // 2+3. Replace-color and remove-bg share ONE raw materialisation. They
+    // run BEFORE the effects so color matching happens on the ORIGINAL
+    // pixels — an effect applied afterwards must not "un-match" the color
+    // the user picked (same order as the renderer's composite preview).
+    if (edits.recolor || edits.rmbg) {
+      const { data, info } = await (edits.rmbg ? pipe.ensureAlpha() : pipe)
+        .raw().toBuffer({ resolveWithObject: true });
+      const ch = info.channels;
+      if (edits.recolor) {
+        const [fr, fg, fb] = hex(edits.recolor.from);
+        const [tr, tg, tb] = hex(edits.recolor.to);
+        const tol = Math.round(Math.max(0, Math.min(100, edits.recolor.tolerance ?? 10)) / 100 * 255);
+        for (let i = 0; i < data.length; i += ch) {
+          if (Math.abs(data[i] - fr) <= tol && Math.abs(data[i + 1] - fg) <= tol && Math.abs(data[i + 2] - fb) <= tol) {
+            data[i] = tr; data[i + 1] = tg; data[i + 2] = tb;
+          }
+        }
+        steps.push('recolor');
+      }
+      if (edits.rmbg) {
+        const [cr, cg, cb] = hex(edits.rmbg.color);
+        const tol = Math.round(Math.max(0, Math.min(100, edits.rmbg.tolerance ?? 20)) / 100 * 255);
+        for (let i = 0; i < data.length; i += ch) {
+          if (Math.abs(data[i] - cr) <= tol && Math.abs(data[i + 1] - cg) <= tol && Math.abs(data[i + 2] - cb) <= tol) {
+            data[i + 3] = 0;
+          }
+        }
+        steps.push('rmbg');
+      }
+      pipe = sharp(data, { raw: { width: info.width, height: info.height, channels: ch } });
+    }
+
+    // 4. Effects — AFTER the pixel ops (same recipe as images:applyEffects).
+    if (edits.fx) {
+      const fx = edits.fx;
+      const b  = Number(fx.brightness ?? 100) / 100;
+      const c  = Number(fx.contrast   ?? 100) / 100;
+      const s  = Number(fx.saturation ?? 100) / 100;
+      const h  = Number(fx.hue        ?? 0);
+      const bl = Math.max(0, Number(fx.blur    ?? 0));
+      const sh = Math.max(0, Number(fx.sharpen ?? 0));
+      if (b !== 1 || s !== 1 || h !== 0) pipe = pipe.modulate({ brightness: b, saturation: s, hue: h });
+      if (c !== 1)      pipe = pipe.linear(c, 128 * (1 - c));
+      if (fx.grayscale) pipe = pipe.grayscale();
+      if (fx.sepia)     pipe = pipe.recomb(SEPIA_MATRIX);
+      if (fx.invert)    pipe = pipe.negate({ alpha: false });
+      if (bl > 0)       pipe = pipe.blur(bl);
+      if (sh > 0)       pipe = pipe.sharpen({ sigma: sh });
+      steps.push('fx');
+    }
+
+    // 5. Resize — the renderer pre-computes pct → max px, so only bounds here.
+    if (edits.resize && (edits.resize.maxWidth > 0 || edits.resize.maxHeight > 0)) {
+      pipe = pipe.resize({
+        width:  edits.resize.maxWidth  > 0 ? Math.round(edits.resize.maxWidth)  : undefined,
+        height: edits.resize.maxHeight > 0 ? Math.round(edits.resize.maxHeight) : undefined,
+        fit: 'inside'
+      });
+      steps.push('resize');
+    }
+
+    // Output: transparency forces PNG; otherwise requested format or source's.
+    let toFmt, outExt;
+    if (edits.rmbg) { toFmt = 'png'; outExt = 'png'; }
+    else ({ toFmt, outExt } = pickOutFormat(input, edits.format || null));
+    // Folder + name from the save modal (sanitized); auto-dedupe with " (n)"
+    // so an existing file is never silently overwritten.
+    const dir = (outputDir && typeof outputDir === 'string' && fs.existsSync(outputDir))
+      ? outputDir : path.dirname(input);
+    const safeName = String(outputName || '').replace(/[<>:"|?*\\/\x00-\x1f]/g, '_').trim()
+      || path.basename(input, path.extname(input)) + '-edit';
+    let target = path.join(dir, `${safeName}.${outExt}`);
+    for (let n = 2; fs.existsSync(target); n++) target = path.join(dir, `${safeName} (${n}).${outExt}`);
+    await pipe.toFormat(toFmt).toFile(target + '.tmp');
+    fs.renameSync(target + '.tmp', target);
+    return { ok: true, path: target, steps };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 // Bulk watermark — overlays a text string on every selected image. Position
 // is one of the 9 anchor points (tl/tc/tr/ml/mc/mr/bl/bc/br); colour, font
 // size, opacity, and optional drop shadow are configurable. The watermark
@@ -2605,7 +2891,7 @@ ipcMain.handle('media:resolveStreamUrl', async (_, { url, kind = 'audio' } = {})
       url
     ];
     if (px) args.unshift('--proxy', px);
-    const proc = spawn(ytdlp, args);
+    const proc = spawnYtDlp(ytdlp, args);
     let out = '', err = '';
     proc.stdout.on('data', d => out += d.toString());
     proc.stderr.on('data', d => err += d.toString());
@@ -2839,6 +3125,30 @@ ipcMain.handle('xtract:convert', async (event, { input, format, opId }) => {
     ? ['-hide_banner', '-y', '-i', input, '-c', 'copy', out]
     : ['-hide_banner', '-y', '-i', input, out];
   return ffmpegRun(event, args, out, opId);
+});
+
+// 2a-bis) Audio-track surgery on a video: strip the original audio, or swap
+// it with an external audio file. Video stream-copied both ways (no
+// re-encode); replacement audio re-encoded to fit the container.
+ipcMain.handle('xtract:audiotrack', async (event, { input, mode, audio, opId }) => {
+  if (!input || !fs.existsSync(input)) return { ok: false, error: 'Input file not found' };
+  const ext = path.extname(input).slice(1).toLowerCase() || 'mp4';
+  if (mode === 'replace') {
+    if (!audio || !fs.existsSync(audio)) return { ok: false, error: 'Audio file not found' };
+    const out = xtractOutputPath(input, '-newaudio', ext);
+    // -map 0:v + 1:a = video from the source, audio from the picked file;
+    // -shortest stops at the shorter of the two. WebM only accepts
+    // Opus/Vorbis — every other container gets AAC.
+    const acodec = ext === 'webm'
+      ? ['-c:a', 'libopus', '-b:a', '160k']
+      : ['-c:a', 'aac', '-b:a', '256k'];
+    const args = ['-hide_banner', '-y', '-i', input, '-i', audio,
+      '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', ...acodec, '-shortest', out];
+    return ffmpegRun(event, args, out, opId);
+  }
+  // Default: remove — copy every stream except audio (video + subs survive).
+  const out = xtractOutputPath(input, '-noaudio', ext);
+  return ffmpegRun(event, ['-hide_banner', '-y', '-i', input, '-c', 'copy', '-an', out], out, opId);
 });
 
 // 2b) Resize a video to a target height (keeps aspect; -2 = even width). H.264/AAC mp4.
@@ -3196,14 +3506,227 @@ function parseFfmpegMeta(stderr, inputPath) {
   return meta;
 }
 
-// 8) Audio normalize — EBU R128 loudnorm filter. Single-pass for speed; the
-// reference target is the conservative spotify/iTunes -14 LUFS.
-ipcMain.handle('xtract:normalize', async (event, { input, opId }) => {
+// 8) Audio normalize — EBU R128 loudnorm filter. Single-pass for speed.
+// `target` (LUFS) is user-controlled from the renderer's normalize card
+// (default -14, the conservative spotify/iTunes reference); clamped to a
+// sane range so a stray value can't produce a nonsensical filter string.
+ipcMain.handle('xtract:normalize', async (event, { input, target, opId }) => {
   if (!input || !fs.existsSync(input)) return { ok: false, error: 'Input file not found' };
   const ext = path.extname(input).slice(1) || 'mp3';
   const out = xtractOutputPath(input, '-normalized', ext);
-  const args = ['-hide_banner', '-y', '-i', input, '-af', 'loudnorm=I=-14:LRA=11:TP=-1', out];
+  const I = Number.isFinite(target) ? Math.max(-40, Math.min(-5, target)) : -14;
+  const args = ['-hide_banner', '-y', '-i', input, '-af', `loudnorm=I=${I}:LRA=11:TP=-1`, out];
   return ffmpegRun(event, args, out, opId);
+});
+
+// ─── Unified non-destructive pipeline (Xtract Audio/Video single-window
+// editor) ────────────────────────────────────────────────────────────────
+// Trim/Concat/Audiotrack/Normalize no longer run ffmpeg individually from
+// the renderer — they stage into a pipeline object shown live on the shared
+// waveform/video preview, and Save applies the whole thing in ONE call here,
+// through temp files in os.tmpdir(), in a fixed order that mirrors the image
+// editor's fixed crop→colors→fx→annotations order:
+//   concat (assemble the full timeline) → trim (cut the range, +fades) →
+//   audiotrack (remove/replace audio) → normalize (final loudness pass)
+// Each stage below duplicates the equivalent standalone handler's ffmpeg
+// argument-building above rather than refactoring it in place — the
+// standalone handlers stay untouched (and independently callable/testable)
+// while this new chain is proven out.
+function pipelineTmpPath(ext) {
+  return path.join(os.tmpdir(), `flux-pipeline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`);
+}
+
+// `extras`: array of {path, fadeIn, start, end} (plain path strings also
+// accepted for back-compat) — a "DJ mix" style queue where each track can
+// carry its own fade-in + trim range, in the order the renderer's list has
+// them. Any extra that stages a fade/trim gets pre-processed through
+// stageTrim first (same logic the standalone Trim path uses, so the result
+// matches exactly what the Trim card would have produced for that file) into
+// a temp file; everything else is fed straight into the concat demuxer list
+// untouched, matching the fast path for the common "just append" case.
+async function stageConcat(event, current, extras, opId) {
+  const ext = path.extname(current).slice(1).toLowerCase() || 'mp4';
+  const tmpFiles = [];
+  const resolvedPaths = [];
+  for (const extra of extras) {
+    const p = typeof extra === 'string' ? extra : extra.path;
+    const fadeIn = typeof extra === 'object' ? (Number(extra.fadeIn) || 0) : 0;
+    const start = (typeof extra === 'object' && extra.start) ? extra.start : '';
+    const end   = (typeof extra === 'object' && extra.end)   ? extra.end   : '';
+    if (fadeIn > 0 || (start && end)) {
+      const extExt = path.extname(p).slice(1).toLowerCase() || ext;
+      let segEnd = end;
+      if (!segEnd) {
+        const d = await ffmpegProbeDuration(p);
+        segEnd = d > 0 ? formatSecondsHMS(d) : null;
+      }
+      if (segEnd) {
+        const r = await stageTrim(event, p, { start: start || '00:00.0', end: segEnd, fadeIn, fadeOut: 0, outputFormat: extExt }, opId);
+        if (r.ok) { resolvedPaths.push(r.path); tmpFiles.push(r.path); continue; }
+      }
+    }
+    resolvedPaths.push(p);
+  }
+  const tmpList = path.join(os.tmpdir(), `flux-pipeline-concat-${Date.now()}.txt`);
+  const all = [current, ...resolvedPaths].map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+  fs.writeFileSync(tmpList, all);
+  const out = pipelineTmpPath(ext);
+  const args = ['-hide_banner', '-y', '-f', 'concat', '-safe', '0', '-i', tmpList, '-c', 'copy', out];
+  const r = await ffmpegRun(event, args, out, opId);
+  try { fs.unlinkSync(tmpList); } catch {}
+  for (const f of tmpFiles) { try { fs.unlinkSync(f); } catch {} }
+  return r;
+}
+
+// Mirrors the xtract:trim handler's branches (fast copy / re-encode for
+// fades or format change / GIF palette pass) but always writes to a temp
+// path instead of the final download-folder destination.
+async function stageTrim(event, current, { start, end, fadeIn = 0, fadeOut = 0, outputFormat, gif }, opId) {
+  const startSec = parseTimeToSeconds(start);
+  const endSec   = parseTimeToSeconds(end);
+  if (startSec === null || endSec === null || startSec >= endSec) {
+    return { ok: false, error: `Invalid trim range (start="${start}", end="${end}").` };
+  }
+  const dur = await ffmpegProbeDuration(current);
+  if (dur > 0 && (endSec > dur + 0.5 || startSec >= dur)) {
+    return { ok: false, error: `Trim range is past the current timeline length (${formatSecondsHMS(dur)}).` };
+  }
+  const segDur = endSec - startSec;
+  const fIn  = Math.max(0, Math.min(Number(fadeIn)  || 0, segDur));
+  const fOut = Math.max(0, Math.min(Number(fadeOut) || 0, segDur));
+
+  const inExt  = path.extname(current).slice(1).toLowerCase();
+  const outExt = (outputFormat && String(outputFormat).toLowerCase()) || inExt || 'mp4';
+  const formatChange = outExt !== inExt;
+  const inIsGif  = inExt  === 'gif';
+  const outIsGif = outExt === 'gif';
+  const out = pipelineTmpPath(outExt);
+  const wantFades = fIn > 0 || fOut > 0;
+
+  if (wantFades || formatChange) {
+    if (outIsGif) {
+      const fps    = (gif && Number.isFinite(gif.fps))   ? Math.max(5, Math.min(30, gif.fps))   : 15;
+      const widthN = (gif && Number.isFinite(gif.width)) ? gif.width                            : 480;
+      const scaleArg = widthN > 0 ? `scale=${widthN}:-1:flags=lanczos,` : '';
+      const dKind = (gif && gif.dither) || 'bayer';
+      const ditherArg = dKind === 'bayer'           ? 'dither=bayer:bayer_scale=5:diff_mode=rectangle'
+                      : dKind === 'sierra2'         ? 'dither=sierra2:diff_mode=rectangle'
+                      : dKind === 'floyd_steinberg' ? 'dither=floyd_steinberg:diff_mode=rectangle'
+                      :                                'dither=none:diff_mode=rectangle';
+      const filter = `[0:v]fps=${fps},${scaleArg}split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=${ditherArg}`;
+      const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, '-filter_complex', filter, '-loop', '0', '-an', out];
+      return ffmpegRun(event, args, out, opId);
+    }
+    const audioCodec = TRIM_AUDIO_CODECS[outExt];
+    const videoCodec = TRIM_VIDEO_CODECS[outExt];
+    let codecArgs;
+    if (audioCodec && !videoCodec) {
+      const filters = [];
+      if (fIn  > 0) filters.push(`afade=t=in:st=0:d=${fIn.toFixed(3)}`);
+      if (fOut > 0) filters.push(`afade=t=out:st=${Math.max(0, segDur - fOut).toFixed(3)}:d=${fOut.toFixed(3)}`);
+      codecArgs = ['-vn', ...(filters.length ? ['-af', filters.join(',')] : []), ...audioCodec];
+    } else if (videoCodec) {
+      if (inIsGif) {
+        const noAudio = [];
+        for (let i = 0; i < videoCodec.length; i++) {
+          const a = videoCodec[i];
+          if (a === '-c:a' || a === '-b:a') { i++; continue; }
+          noAudio.push(a);
+        }
+        codecArgs = [...noAudio, '-an'];
+      } else {
+        const filters = [];
+        if (fIn  > 0) filters.push(`afade=t=in:st=0:d=${fIn.toFixed(3)}`);
+        if (fOut > 0) filters.push(`afade=t=out:st=${Math.max(0, segDur - fOut).toFixed(3)}:d=${fOut.toFixed(3)}`);
+        codecArgs = [...(filters.length ? ['-af', filters.join(',')] : []), ...videoCodec];
+      }
+    } else {
+      return { ok: false, error: `Unsupported output format: ${outExt}` };
+    }
+    const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, ...codecArgs, out];
+    return ffmpegRun(event, args, out, opId);
+  }
+
+  const codec = inExt === 'flac' ? ['-c:a', 'flac'] : ['-c', 'copy', '-avoid_negative_ts', 'make_zero'];
+  const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, ...codec, out];
+  return ffmpegRun(event, args, out, opId);
+}
+
+async function stageAudiotrack(event, current, { mode, audio }, opId) {
+  const ext = path.extname(current).slice(1).toLowerCase() || 'mp4';
+  if (mode === 'replace') {
+    if (!audio || !fs.existsSync(audio)) return { ok: false, error: 'Replacement audio file not found' };
+    const out = pipelineTmpPath(ext);
+    const acodec = ext === 'webm' ? ['-c:a', 'libopus', '-b:a', '160k'] : ['-c:a', 'aac', '-b:a', '256k'];
+    const args = ['-hide_banner', '-y', '-i', current, '-i', audio, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', ...acodec, '-shortest', out];
+    return ffmpegRun(event, args, out, opId);
+  }
+  const out = pipelineTmpPath(ext);
+  return ffmpegRun(event, ['-hide_banner', '-y', '-i', current, '-c', 'copy', '-an', out], out, opId);
+}
+
+async function stageNormalize(event, current, { target }, opId) {
+  const ext = path.extname(current).slice(1).toLowerCase() || 'mp3';
+  const out = pipelineTmpPath(ext);
+  const I = Number.isFinite(target) ? Math.max(-40, Math.min(-5, target)) : -14;
+  const args = ['-hide_banner', '-y', '-i', current, '-af', `loudnorm=I=${I}:LRA=11:TP=-1`, out];
+  return ffmpegRun(event, args, out, opId);
+}
+
+ipcMain.handle('xtract:applyPipeline', async (event, payload) => {
+  const { input, concatExtras, trim, audiotrackMode, audiotrackFile, normalize, outputFormat, outputName, outputDir, gif, opId } = payload;
+  if (!input || !fs.existsSync(input)) return { ok: false, error: 'Input file not found' };
+
+  const tmpFiles = [];
+  let current = input;
+
+  try {
+    if (concatExtras && concatExtras.length) {
+      const r = await stageConcat(event, current, concatExtras, opId);
+      if (!r.ok) throw new Error(r.error);
+      current = r.path; tmpFiles.push(current);
+    }
+    if (trim && trim.start && trim.end) {
+      const r = await stageTrim(event, current, { ...trim, outputFormat: trim.outputFormat || outputFormat, gif }, opId);
+      if (!r.ok) throw new Error(r.error);
+      current = r.path; tmpFiles.push(current);
+    }
+    if (audiotrackMode === 'remove' || (audiotrackMode === 'replace' && audiotrackFile)) {
+      const r = await stageAudiotrack(event, current, { mode: audiotrackMode, audio: audiotrackFile }, opId);
+      if (!r.ok) throw new Error(r.error);
+      current = r.path; tmpFiles.push(current);
+    }
+    if (normalize && Number.isFinite(normalize.target)) {
+      const r = await stageNormalize(event, current, normalize, opId);
+      if (!r.ok) throw new Error(r.error);
+      current = r.path; tmpFiles.push(current);
+    }
+
+    const finalExt = (outputFormat || path.extname(current).slice(1) || path.extname(input).slice(1) || 'mp4').toLowerCase();
+    const cfg = loadConfig();
+    const dir = outputDir || cfg.download_folder || path.dirname(input);
+    fs.mkdirSync(dir, { recursive: true });
+    const safeName = (outputName || path.basename(input, path.extname(input))).replace(/[\\/:*?"<>|]/g, '_').trim() || 'output';
+    let finalPath = path.join(dir, `${safeName}.${finalExt}`);
+    let n = 1;
+    while (fs.existsSync(finalPath)) { finalPath = path.join(dir, `${safeName} (${n}).${finalExt}`); n++; }
+
+    if (current === input) {
+      // Save was confirmed with nothing actually staged — shouldn't happen
+      // (the renderer disables Save on an empty pipeline) but copy through
+      // rather than error, so a stray click still produces something sane.
+      fs.copyFileSync(current, finalPath);
+    } else {
+      fs.renameSync(current, finalPath);
+      const idx = tmpFiles.indexOf(current);
+      if (idx !== -1) tmpFiles.splice(idx, 1);
+    }
+    return { ok: true, path: finalPath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    for (const f of tmpFiles) { try { fs.unlinkSync(f); } catch {} }
+  }
 });
 
 // Lightweight duration probe used by the renderer right after file pick to
@@ -3421,11 +3944,25 @@ ipcMain.handle('binary:ensureForModule', async (e, moduleId) => {
 // ─── IPC: CONFIG / PROFILES / EXPORT ─────────────────────────────────────────
 ipcMain.handle('config:load',  ()      => loadConfig());
 ipcMain.handle('config:save',  (_, c)  => {
+  // remote_whitelist / remote_lan_devices can be written OUT-OF-BAND by
+  // main.js itself — a phone pairing via Telegram/LAN happens without the
+  // renderer's in-memory `config` object ever knowing about it. If we blindly
+  // overwrote the file with the renderer's (now-stale) copy on its next
+  // save — which can be ANY settings change, not just a Remote one — a
+  // pairing that happened in between would silently vanish from disk. Always
+  // take these two fields from the freshest on-disk state instead of
+  // trusting the renderer's blob for them.
+  const onDisk = loadConfig();
+  c.remote_whitelist   = onDisk.remote_whitelist;
+  c.remote_lan_devices = onDisk.remote_lan_devices;
   const r = saveConfig(c);
   // Re-apply the global SOCKS5 proxy in case the user toggled it on/off
   // or changed credentials. Cheap when unchanged — applyGlobalProxy
   // exits early if config matches the previously-applied state.
   applyGlobalProxy().catch(e => log('ERROR', `applyGlobalProxy: ${e.message}`));
+  // (Re)start/stop the Remote-companion transports if the bot token or the
+  // LAN toggle/port changed. Idempotent — no-op when nothing relevant moved.
+  syncRemoteServicesWithConfig(c);
   return r;
 });
 ipcMain.handle('config:resetTOS', () => {
@@ -3459,7 +3996,8 @@ const FLUX_SENSITIVE_KEYS = [
   'socks_host', 'socks_port', 'socks_user', 'socks_pass',
   'download_folder', 'library_root', 'image_library_root',
   'sync_profiles', 'playlists', 'radio_favorites',
-  'tos_accepted'
+  'tos_accepted',
+  'remote_bot_token', 'remote_whitelist', 'remote_lan_devices'
 ];
 
 ipcMain.handle('flux:export', async (_, cfg, mode = 'shareable') => {
@@ -4469,13 +5007,27 @@ async function sendNzbFromFile({ filePath, test } = {}) {
 ipcMain.handle('sendto:torrent', (_, payload) => sendToTorrentClient(payload || {}));
 ipcMain.handle('sendto:test',    ()           => sendToTorrentClient({ test: true }));
 
-async function sendToTorrentClient({ magnet, url: torrentUrl, name, test } = {}) {
+// `filePath` lets History/Downloads resend a previously-saved .torrent/.magnet
+// file (no magnet/URL kept around from that point on) — a .magnet file is
+// just its magnet URI as text, a .torrent file needs an actual upload
+// (qBittorrent: multipart field; Transmission: base64 metainfo), not a link.
+async function sendToTorrentClient({ magnet, url: torrentUrl, filePath, name, test } = {}) {
   const cfg = loadConfig();
   if (!cfg.sendto_enabled && !test) return { ok: false, error: 'send-to-client disabled' };
   const baseUrl = (cfg.sendto_url || '').replace(/\/+$/, '');
   if (!baseUrl) return { ok: false, error: 'sendto_url not configured' };
-  const link = magnet || torrentUrl;
-  if (!test && !link) return { ok: false, error: 'no magnet / URL to send' };
+
+  let link = magnet || torrentUrl;
+  let fileBuffer = null;
+  if (!link && filePath) {
+    try {
+      if (/\.magnet$/i.test(filePath)) link = fs.readFileSync(filePath, 'utf8').trim();
+      else fileBuffer = fs.readFileSync(filePath);
+    } catch (e) {
+      return { ok: false, error: `Impossibile leggere il file: ${e.message}` };
+    }
+  }
+  if (!test && !link && !fileBuffer) return { ok: false, error: 'no magnet / URL / file to send' };
 
   try {
     if (cfg.sendto_type === 'qbittorrent') {
@@ -4496,15 +5048,23 @@ async function sendToTorrentClient({ magnet, url: torrentUrl, name, test } = {})
       const setCookies = typeof loginRes.headers.getSetCookie === 'function' ? loginRes.headers.getSetCookie() : [];
       const cookie = (setCookies[0] || loginRes.headers.get('set-cookie') || '').split(';')[0];
       if (test) return { ok: true };
-      const formBody = new URLSearchParams({ urls: link });
-      if (cfg.sendto_category) formBody.set('category', cfg.sendto_category);
-      const addHeaders = { 'Content-Type': 'application/x-www-form-urlencoded', 'Referer': baseUrl };
-      if (cookie) addHeaders['Cookie'] = cookie;
-      const addRes = await fetch(`${baseUrl}/api/v2/torrents/add`, {
-        method: 'POST',
-        headers: addHeaders,
-        body: formBody
-      });
+      let addRes;
+      if (fileBuffer) {
+        const formData = new FormData();
+        formData.append('torrents', new Blob([fileBuffer]), path.basename(filePath));
+        if (cfg.sendto_category) formData.append('category', cfg.sendto_category);
+        addRes = await fetch(`${baseUrl}/api/v2/torrents/add`, {
+          method: 'POST',
+          headers: cookie ? { 'Cookie': cookie, 'Referer': baseUrl } : { 'Referer': baseUrl },
+          body: formData
+        });
+      } else {
+        const formBody = new URLSearchParams({ urls: link });
+        if (cfg.sendto_category) formBody.set('category', cfg.sendto_category);
+        const addHeaders = { 'Content-Type': 'application/x-www-form-urlencoded', 'Referer': baseUrl };
+        if (cookie) addHeaders['Cookie'] = cookie;
+        addRes = await fetch(`${baseUrl}/api/v2/torrents/add`, { method: 'POST', headers: addHeaders, body: formBody });
+      }
       if (!addRes.ok) return { ok: false, error: `qBittorrent add failed: HTTP ${addRes.status}` };
       return { ok: true, sentTo: 'qbittorrent' };
     } else if (cfg.sendto_type === 'transmission') {
@@ -4524,10 +5084,13 @@ async function sendToTorrentClient({ magnet, url: torrentUrl, name, test } = {})
       const sid = probe.headers.get('x-transmission-session-id');
       if (!sid) return { ok: false, error: 'Transmission session id missing — wrong URL or creds?' };
       if (test) return { ok: true };
+      const args = fileBuffer
+        ? { metainfo: fileBuffer.toString('base64'), 'download-dir': cfg.sendto_category || undefined }
+        : { filename: link, 'download-dir': cfg.sendto_category || undefined };
       const addRes = await fetch(rpcUrl, {
         method: 'POST',
         headers: { ...baseHeaders, 'X-Transmission-Session-Id': sid },
-        body: JSON.stringify({ method: 'torrent-add', arguments: { filename: link, 'download-dir': cfg.sendto_category || undefined } })
+        body: JSON.stringify({ method: 'torrent-add', arguments: args })
       });
       const json = await addRes.json().catch(() => ({}));
       if (json.result !== 'success') return { ok: false, error: `Transmission: ${json.result || 'unknown error'}` };
@@ -5088,6 +5651,51 @@ function getYtDlpProxyArg() {
   return `socks5h://${auth}${cfg.socks_host}:${cfg.socks_port || 1080}`;
 }
 
+// ─── YT-DLP TLS TRUST (system certificate store) ─────────────────────────────
+// yt-dlp's bundled Python trusts only its embedded certifi CA list, and its
+// curl-impersonation transport only the CA bundle curl ships with. Behind
+// TLS-intercepting software (corporate proxies, antivirus HTTPS scanning —
+// e.g. Avast's Web Shield re-signs every connection with its own root) both
+// reject the re-signed chain and EVERY yt-dlp request dies with
+// CERTIFICATE_VERIFY_FAILED, while the rest of FLUX works because Electron
+// net uses the OS store (same rationale as httpGetStream). Two-part fix,
+// applied to every spawn via spawnYtDlp():
+//   1. `--compat-options no-certifi` → the Python transport loads the OS
+//      certificate store instead of certifi;
+//   2. CURL_CA_BUNDLE (+ SSL_CERT_FILE for good measure) points at a PEM we
+//      export from the OS store at first use (tls.getCACertificates('system'),
+//      feature-detected) — the curl transport has no OS-store mode and needs
+//      the file. Both verified live behind an Avast-intercepted network.
+let ytDlpCaEnv; // undefined = not built yet, null = unavailable on this runtime
+function getYtDlpCaEnv() {
+  if (ytDlpCaEnv !== undefined) return ytDlpCaEnv;
+  ytDlpCaEnv = null;
+  try {
+    const tls = require('tls');
+    const system = typeof tls.getCACertificates === 'function' ? tls.getCACertificates('system') : [];
+    if (system.length) {
+      const pem = path.join(app.getPath('userData'), 'ca-bundle.pem');
+      fs.writeFileSync(pem, [...system, ...tls.rootCertificates].join('\n'));
+      ytDlpCaEnv = { SSL_CERT_FILE: pem, REQUESTS_CA_BUNDLE: pem, CURL_CA_BUNDLE: pem };
+      log('INFO', `yt-dlp CA bundle: ${system.length} system + ${tls.rootCertificates.length} bundled certs → ${pem}`);
+    }
+  } catch (e) {
+    log('WARN', `yt-dlp CA bundle export failed (python transport still uses OS store via no-certifi): ${e.message}`);
+  }
+  return ytDlpCaEnv;
+}
+
+// Single spawn point for yt-dlp so the TLS-trust setup above cannot be
+// forgotten on a new call site.
+function spawnYtDlp(ytdlp, args, opts = {}) {
+  const caEnv = getYtDlpCaEnv();
+  return spawn(ytdlp, ['--compat-options', 'no-certifi', ...args], {
+    shell: false,
+    ...opts,
+    ...(caEnv ? { env: { ...process.env, ...caEnv } } : {})
+  });
+}
+
 // Open the IRC transport: plain TCP, TLS, or either of those over SOCKS5,
 // depending on user config. Returns a connected socket ready for write().
 async function openIrcTransport({ server, port, useTls }) {
@@ -5459,7 +6067,11 @@ ipcMain.handle('queue:run', async (event, { queue, config }) => {
 // gets the full task list up front ('torrent:searchPlan') so it can draw a chip
 // per unit, then a 'torrent:siteProgress' as each finishes (with its hit count)
 // so chips turn green/grey live instead of one source-chip spinning for ages.
-ipcMain.handle('torrent:search', async (event, { query, config }) => {
+// Extracted from the ipcMain handler so the Remote-companion dispatcher can
+// run the exact same multi-source search (progress events go to `event.sender`
+// same as before — the Remote dispatcher passes { sender: mainWindow.webContents }
+// so a search triggered from a phone also updates the desktop UI live).
+async function runTorrentSearch(event, query, config) {
   const results = [], errors = [];
   const sites   = Object.keys(config.sites).filter(s => config.sites[s].enabled);
 
@@ -5491,7 +6103,9 @@ ipcMain.handle('torrent:search', async (event, { query, config }) => {
   });
   results.sort((a, b) => b.seeds - a.seeds);
   return { results, errors };
-});
+}
+
+ipcMain.handle('torrent:search', (event, { query, config }) => runTorrentSearch(event, query, config));
 
 // Run `worker` over `items` with at most `limit` in flight at a time.
 async function runWithConcurrency(items, limit, worker) {
@@ -6136,7 +6750,16 @@ async function runMediaDownload(event, url, format, downloadFolder, attempt = 1)
     const aacPref   = '[acodec^=mp4a]';
     // Format presets
     switch (format) {
-      case 'audio':       args.push('-x', '--audio-format', 'mp3',  '--audio-quality', '0', '--ppa', 'FFmpegExtractAudio:-id3v2_version 3 -write_xing 1'); break;
+      // 'audio' is the legacy pre-bitrate value (still present in persisted
+      // queue items) → best VBR; the *_320/256/128 pills request a fixed CBR.
+      case 'audio':
+      case 'audio_320':
+      case 'audio_256':
+      case 'audio_128': {
+        const mp3Quality = { audio: '0', audio_320: '320K', audio_256: '256K', audio_128: '128K' }[format];
+        args.push('-x', '--audio-format', 'mp3', '--audio-quality', mp3Quality, '--ppa', 'FFmpegExtractAudio:-id3v2_version 3 -write_xing 1');
+        break;
+      }
       case 'audio_flac':  args.push('-x', '--audio-format', 'flac', '--audio-quality', '0'); break;
       case 'audio_m4a':   args.push('-x', '--audio-format', 'm4a',  '--audio-quality', '0'); break;
       case 'audio_opus':  args.push('-x', '--audio-format', 'opus', '--audio-quality', '0'); break;
@@ -6145,6 +6768,18 @@ async function runMediaDownload(event, url, format, downloadFolder, attempt = 1)
         args.push('-f', mp4Compat
           ? `bestvideo${h264Pref}+bestaudio${aacPref}/best[ext=mp4]/bestvideo+bestaudio/best`
           : 'bestvideo+bestaudio/best');
+        args.push('--merge-output-format', 'mp4');
+        break;
+      case 'video_2160':
+        args.push('-f', mp4Compat
+          ? `bestvideo[height<=2160]${h264Pref}+bestaudio${aacPref}/bestvideo[height<=2160]+bestaudio/best[height<=2160]`
+          : 'bestvideo[height<=2160]+bestaudio/best[height<=2160]');
+        args.push('--merge-output-format', 'mp4');
+        break;
+      case 'video_1440':
+        args.push('-f', mp4Compat
+          ? `bestvideo[height<=1440]${h264Pref}+bestaudio${aacPref}/bestvideo[height<=1440]+bestaudio/best[height<=1440]`
+          : 'bestvideo[height<=1440]+bestaudio/best[height<=1440]');
         args.push('--merge-output-format', 'mp4');
         break;
       case 'video_1080':
@@ -6167,12 +6802,20 @@ async function runMediaDownload(event, url, format, downloadFolder, attempt = 1)
         break;
     }
     // Relative template — combined with -P home: above this resolves to downloadFolder/title.ext
-    args.push('-o', '%(title)s.%(ext)s', '--no-playlist', url);
+    // --print after_move:... asks yt-dlp itself for the ABSOLUTE final path,
+    // emitted once everything (download, merge, postprocessing, home/temp
+    // move) is done — the authoritative answer, instead of us guessing it
+    // from a "Destination:"/"Merging into" log line that isn't always
+    // emitted in a parsable form (format/extractor dependent). The FLUXPATH:
+    // prefix is just so this one line can't be confused with anything else
+    // yt-dlp writes to stdout.
+    args.push('-o', '%(title)s.%(ext)s', '--no-playlist', '--print', 'after_move:FLUXPATH:%(filepath)s', url);
 
     log('INFO', `yt-dlp attempt ${attempt}: ${url} [${format}]`);
-    const proc = spawn(ytdlp, args, { shell: false });
+    const proc = spawnYtDlp(ytdlp, args);
     activeMediaProcs.add(proc);
     let lastDestPath = null;
+    let printedFinalPath = null;
     let stoppedByUser = false;
     proc.__fluxStop = () => { stoppedByUser = true; killProcessTree(proc); };
 
@@ -6189,6 +6832,10 @@ async function runMediaDownload(event, url, format, downloadFolder, attempt = 1)
       for (const rawLine of text.split(/\r?\n/)) {
         const line = rawLine.trim();
         if (!line) continue;
+        // The --print line is for us, not the user — skip forwarding it to
+        // the on-screen/activity log.
+        const printed = line.match(/^FLUXPATH:(.+)$/);
+        if (printed) { printedFinalPath = printed[1].trim(); continue; }
         safeSend(event.sender, 'media:progress', { line, error: false });
         const m = line.match(/^\[(?:download|ExtractAudio|Merger|ffmpeg)\]\s+(?:Destination:|Merging formats into|Adding metadata to)\s*"?([^"]+?)"?\s*$/);
         if (m) lastDestPath = m[1];
@@ -6212,20 +6859,23 @@ async function runMediaDownload(event, url, format, downloadFolder, attempt = 1)
       activeMediaProcs.delete(proc);
       if (stoppedByUser) return resolve({ ok: false, code, error: 'Stopped by user', stopped: true });
       if (code !== 0) return resolve({ ok: false, code, error: `yt-dlp exited with code ${code}` });
-      // lastDestPath captures the most recent "Destination:" / "Merging into" /
-      // "Adding metadata" line. During post-processing (ExtractAudio, Merger)
-      // yt-dlp writes those to the TEMP dir (.flux-temp). After all
-      // processing, yt-dlp moves the file from `temp:` to `home:` — but
-      // that move isn't always logged on a parsable line, so the captured
-      // path still points at .flux-temp.
-      //
-      // Resolve the real final location: take the basename, join with the
-      // download folder, and use that if the file actually landed there
-      // (which yt-dlp's --paths home:/temp: contract guarantees on success).
-      // Edge case: occasionally yt-dlp leaves the post-processed file in
-      // temp without moving (seen with some extractors / format combos).
-      // In that case we move it ourselves so the saved path is always in
-      // the user's clean download folder, never inside .flux-temp.
+
+      // Authoritative source: the --print after_move:filepath line — yt-dlp
+      // telling us directly where the final file landed, after all
+      // postprocessing and the temp→home move are done. Trust it whenever
+      // the file is actually there.
+      if (printedFinalPath && fs.existsSync(printedFinalPath)) {
+        return resolve({ ok: true, code, path: printedFinalPath });
+      }
+
+      // Fallback for older yt-dlp builds without --print support (or the
+      // rare case the printed path didn't materialise): reconstruct from the
+      // last human-readable "Destination:" / "Merging into" / "Adding
+      // metadata" line. During post-processing (ExtractAudio, Merger) yt-dlp
+      // writes those to the TEMP dir (.flux-temp); resolve the real final
+      // location by taking the basename and joining with the download
+      // folder, rescuing (moving) the file ourselves if it never made the
+      // temp→home move yt-dlp's --paths contract normally guarantees.
       let finalPath = lastDestPath;
       if (lastDestPath) {
         const candidate = path.join(downloadFolder, path.basename(lastDestPath));
@@ -6261,7 +6911,7 @@ function getStreamUrl(url) {
     // -f best/bestvideo+bestaudio gives a single combined URL when available.
     const args = ['--no-warnings', '-g', '--no-playlist', '-f', 'best[protocol^=m3u8]/best', url];
     const px = getYtDlpProxyArg(); if (px) args.unshift('--proxy', px);
-    const proc = spawn(ytdlp, args, { shell: false });
+    const proc = spawnYtDlp(ytdlp, args);
     let out = '', err = '';
     const timer = setTimeout(() => { try { proc.kill('SIGTERM'); } catch {} }, 15000);
     proc.stdout.on('data', d => out += d.toString());
@@ -6296,7 +6946,7 @@ function probeMedia(url) {
       url
     ];
     const px = getYtDlpProxyArg(); if (px) args.unshift('--proxy', px);
-    const proc = spawn(ytdlp, args, { shell: false });
+    const proc = spawnYtDlp(ytdlp, args);
     let out = '', err = '';
     const timer = setTimeout(() => { try { proc.kill('SIGTERM'); } catch {} }, 15000);
     proc.stdout.on('data', d => out += d.toString());
@@ -6324,6 +6974,229 @@ function probeMedia(url) {
     proc.on('error', e => { clearTimeout(timer); resolve({ ok: false, error: e.message }); });
   });
 }
+
+// ─── RELATED MEDIA PROVIDERS (player "you might also like") ──────────────────
+// Per-platform adapters that fetch related/recommended items for a media URL,
+// mirroring the torrent-source adapter philosophy: the dispatcher picks a
+// native adapter (YouTube Innertube, SoundCloud api-v2) and falls back to a
+// yt-dlp YouTube search on the probed title when no native adapter exists or
+// the native call fails. Every adapter returns the same normalized shape:
+//   { url, title, uploader, duration, thumbnail }
+
+// Sites tend to serve leaner/complete payloads to a real browser UA; the
+// Innertube WEB client in particular expects one.
+const RELATED_BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+const RELATED_MAX_ITEMS = 12;
+
+function extractYouTubeVideoId(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^(www|m|music)\./, '');
+    if (host === 'youtu.be') return u.pathname.split('/')[1] || null;
+    if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+      if (u.searchParams.get('v')) return u.searchParams.get('v');
+      const m = u.pathname.match(/^\/(shorts|embed|live|v)\/([A-Za-z0-9_-]{6,})/);
+      if (m) return m[2];
+    }
+  } catch { /* invalid URL */ }
+  return null;
+}
+
+// YouTube: Innertube `next` endpoint (the same watch-page recommendations the
+// official web client renders — also what FreeTube/Invidious consume). The
+// public Data API removed relatedToVideoId in 2023, so this IS the way.
+async function relatedFromYouTube(videoId) {
+  const data = await httpPostJSON('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
+    context: { client: { clientName: 'WEB', clientVersion: '2.20250620.00.00', hl: 'en', gl: 'US' } },
+    videoId, racyCheckOk: true, contentCheckOk: true
+  }, { ua: RELATED_BROWSER_UA, timeout: 12000 });
+
+  const results = data?.contents?.twoColumnWatchNextResults?.secondaryResults?.secondaryResults?.results || [];
+  const items = [];
+  const walk = list => {
+    for (const entry of list) {
+      if (entry.itemSectionRenderer?.contents) { walk(entry.itemSectionRenderer.contents); continue; }
+      // Legacy shape (still served to some clients/regions)
+      const cv = entry.compactVideoRenderer || entry.videoRenderer;
+      if (cv?.videoId) {
+        items.push({
+          url: `https://www.youtube.com/watch?v=${cv.videoId}`,
+          title: cv.title?.simpleText || (cv.title?.runs || []).map(r => r.text).join('') || null,
+          uploader: cv.longBylineText?.runs?.[0]?.text || cv.shortBylineText?.runs?.[0]?.text || null,
+          duration: cv.lengthText?.simpleText || null,
+          thumbnail: `https://i.ytimg.com/vi/${cv.videoId}/mqdefault.jpg`
+        });
+        continue;
+      }
+      // Current WEB shape: lockupViewModel. An 11-char contentId is a video;
+      // playlists/mixes carry RD/PL ids and are skipped.
+      const lv = entry.lockupViewModel;
+      if (lv?.contentId && /^[A-Za-z0-9_-]{11}$/.test(lv.contentId)
+          && (!lv.contentType || String(lv.contentType).includes('VIDEO'))) {
+        const meta = lv.metadata?.lockupMetadataViewModel;
+        const rows = meta?.metadata?.contentMetadataViewModel?.metadataRows || [];
+        const uploader = rows[0]?.metadataParts?.[0]?.text?.content || null;
+        let duration = null;
+        for (const ov of lv.contentImage?.thumbnailViewModel?.overlays || []) {
+          const badges = (ov.thumbnailBottomOverlayViewModel?.badges || [])
+            .concat(ov.thumbnailOverlayBadgeViewModel?.thumbnailBadges || []);
+          for (const b of badges) {
+            const txt = b.thumbnailBadgeViewModel?.text;
+            if (txt && /^[\d:]+$/.test(txt)) duration = txt;
+          }
+        }
+        items.push({
+          url: `https://www.youtube.com/watch?v=${lv.contentId}`,
+          title: meta?.title?.content || null,
+          uploader, duration,
+          thumbnail: `https://i.ytimg.com/vi/${lv.contentId}/mqdefault.jpg`
+        });
+      }
+    }
+  };
+  walk(results);
+  return items.filter(i => i.title);
+}
+
+// SoundCloud api-v2 needs a client_id that isn't published anywhere official:
+// the web app embeds it in its asset bundles, so we scrape it once and cache
+// it for the session (it rotates every few weeks → rescrape on 401/403).
+let scClientIdCache = null; // { id, at }
+async function getSoundCloudClientId(force = false) {
+  if (!force && scClientIdCache && Date.now() - scClientIdCache.at < 6 * 3600e3) return scClientIdCache.id;
+  const html = await httpGetText('https://soundcloud.com/', { ua: RELATED_BROWSER_UA });
+  const scripts = [...html.matchAll(/<script[^>]+src="(https:\/\/a-v2\.sndcdn\.com\/assets\/[^"]+\.js)"/g)].map(m => m[1]);
+  // The id usually sits in one of the LAST bundles — walk them in reverse.
+  for (const src of scripts.reverse().slice(0, 8)) {
+    try {
+      const js = await httpGetText(src, { ua: RELATED_BROWSER_UA, accept: '*/*' });
+      const m = js.match(/client_id\s*[:=]\s*"([A-Za-z0-9]{20,40})"/);
+      if (m) { scClientIdCache = { id: m[1], at: Date.now() }; return m[1]; }
+    } catch { /* try next asset */ }
+  }
+  throw new Error('SoundCloud client_id not found');
+}
+
+function formatMsDuration(ms) {
+  if (!ms || !isFinite(ms)) return null;
+  const s = Math.round(ms / 1000);
+  const m = Math.floor(s / 60), sec = s % 60, h = Math.floor(m / 60);
+  return h ? `${h}:${String(m % 60).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+           : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+async function relatedFromSoundCloud(url) {
+  const attempt = async force => {
+    const cid = await getSoundCloudClientId(force);
+    const track = await fetchJSONWithUA(`https://api-v2.soundcloud.com/resolve?url=${encodeURIComponent(url)}&client_id=${cid}`, RELATED_BROWSER_UA, 12000);
+    if (!track || track.kind !== 'track' || !track.id) throw new Error('not a resolvable SoundCloud track');
+    const rel = await fetchJSONWithUA(`https://api-v2.soundcloud.com/tracks/${track.id}/related?client_id=${cid}&limit=14`, RELATED_BROWSER_UA, 12000);
+    return (rel.collection || []).filter(t => t && t.permalink_url).map(t => {
+      const art = t.artwork_url || t.user?.avatar_url || null;
+      return {
+        url: t.permalink_url,
+        title: t.title || null,
+        uploader: t.user?.username || null,
+        duration: formatMsDuration(t.full_duration || t.duration),
+        thumbnail: art ? art.replace('-large.', '-t300x300.') : null
+      };
+    }).filter(i => i.title);
+  };
+  try { return await attempt(false); }
+  catch (e) {
+    // Stale cached client_id → rescrape once and retry
+    if (/HTTP (401|403)/.test(e.message)) return attempt(true);
+    throw e;
+  }
+}
+
+// Fallback for every other yt-dlp-supported site: strip the noise from the
+// probed title and run a flat YouTube search (single HTTP round-trip). Not
+// "related" in the algorithmic sense, but close enough to be useful.
+function cleanRelatedQuery(title) {
+  return String(title)
+    .replace(/[([{][^)\]}]*[)\]}]/g, ' ')
+    .replace(/\b(official|video|audio|lyrics?|lyric|hd|4k|full|remaster(ed)?|visualizer|mv|trailer)\b/gi, ' ')
+    .replace(/[|"“”]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ').slice(0, 8).join(' ');
+}
+
+function relatedFromSearch(query) {
+  return new Promise(resolve => {
+    const ytdlp = getYtDlpPath();
+    if (!ytdlp) return resolve([]);
+    const args = [
+      '--no-warnings', '--flat-playlist',
+      '--print', '%(id)s\t%(title)s\t%(channel,uploader,extractor_key)s\t%(duration_string|)s\t%(url)s',
+      `ytsearch${RELATED_MAX_ITEMS}:${query}`
+    ];
+    const px = getYtDlpProxyArg(); if (px) args.unshift('--proxy', px);
+    const proc = spawnYtDlp(ytdlp, args);
+    let out = '';
+    const timer = setTimeout(() => { try { proc.kill('SIGTERM'); } catch {} }, 25000);
+    proc.stdout.on('data', d => out += d.toString());
+    proc.on('close', () => {
+      clearTimeout(timer);
+      resolve(out.trim().split('\n').filter(Boolean).map(line => {
+        const [id, title, uploader, duration, url] = line.split('\t');
+        if (!id || !title || !url) return null;
+        return {
+          url, title,
+          uploader: uploader || null,
+          duration: duration || null,
+          thumbnail: /^[A-Za-z0-9_-]{11}$/.test(id) ? `https://i.ytimg.com/vi/${id}/mqdefault.jpg` : null
+        };
+      }).filter(Boolean));
+    });
+    proc.on('error', () => { clearTimeout(timer); resolve([]); });
+  });
+}
+
+ipcMain.handle('media:related', async (_, payload) => {
+  const { url, title, uploader } = payload || {};
+  if (!url || !/^https?:\/\//i.test(url)) return { ok: false, error: 'invalid URL', items: [] };
+  let host = '';
+  try { host = new URL(url).hostname.replace(/^(www|m)\./, ''); } catch { /* keep '' */ }
+
+  const dedupe = items => {
+    const seen = new Set([url]);
+    return items.filter(i => {
+      if (!i.url || seen.has(i.url)) return false;
+      seen.add(i.url);
+      return true;
+    }).slice(0, RELATED_MAX_ITEMS);
+  };
+
+  // 1. Native platform adapter
+  try {
+    const videoId = extractYouTubeVideoId(url);
+    if (videoId) {
+      const items = dedupe(await relatedFromYouTube(videoId));
+      if (items.length) return { ok: true, provider: 'youtube', items };
+    } else if (/(^|\.)soundcloud\.com$/.test(host)) {
+      const items = dedupe(await relatedFromSoundCloud(url));
+      if (items.length) return { ok: true, provider: 'soundcloud', items };
+    }
+  } catch (e) {
+    log('WARN', `media:related native adapter (${host}): ${e.message}`);
+  }
+
+  // 2. Generic fallback: YouTube search on the probed title. Prefix the
+  // uploader when the title doesn't already carry it (music titles usually
+  // do, "Artist - Track"), so same-author content ranks first.
+  if (title) {
+    const query = cleanRelatedQuery(title);
+    if (query) {
+      const q = uploader && !query.toLowerCase().includes(String(uploader).toLowerCase())
+        ? `${uploader} ${query}` : query;
+      const items = dedupe(await relatedFromSearch(q));
+      if (items.length) return { ok: true, provider: 'search', items };
+    }
+  }
+  return { ok: true, provider: null, items: [] };
+});
 
 // ─── IPC: LIVE RECORD (yt-dlp with live-aware args) ─────────────────────────
 ipcMain.handle('live:record', (event, { url, format, fromStart, downloadFolder }) =>
@@ -6369,7 +7242,7 @@ async function runLiveRecord(event, url, format, fromStart, downloadFolder) {
     args.push('-o', '%(title)s_%(release_timestamp,timestamp,epoch)s.%(ext)s', url);
 
     log('INFO', `live record: ${url} [${format}${fromStart?' fromStart':''}]`);
-    const proc = spawn(ytdlp, args, { shell: false });
+    const proc = spawnYtDlp(ytdlp, args);
     activeMediaProcs.add(proc);
     let lastDestPath = null;
     let stoppedByUser = false;
@@ -7073,3 +7946,670 @@ async function downloadFile(url, dest, timeout = 30000, _redirects = 0) {
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
   });
 }
+
+// ─── REMOTE MODULE (phone → FLUX companion) ──────────────────────────────────
+// Two independent transports — a Telegram bot (polling, no bot library dep —
+// reuses the same Electron-net JSON fetch helpers as everything else) and a
+// LAN mini web server — share ONE command dispatcher, so "URL → download /
+// free text → torrent search / trailer <title> / Shazam link" is written
+// once. Design + all decisions: memory `flux-mobile-companion`.
+
+// Telegram polling state.
+let telegramPolling     = false;
+let telegramPollTimer   = null;
+let telegramOffset      = 0;
+let telegramActiveToken = null;
+
+// LAN server state.
+let lanServer     = null;
+let lanServerPort = null;
+const lanSessions = new Map(); // token -> { label, at }
+
+// Pending pairing secrets — single-use, short-lived, in-memory only (never
+// persisted). Telegram: 6-digit code typed as the first message to the bot.
+// LAN: 6-digit PIN, normally consumed via the QR code (which embeds it in
+// the pairing URL) rather than typed.
+let pendingPairingCode = null; // { code, expiresAt }
+let pendingLanPin      = null; // { pin, expiresAt }
+
+function generatePairingCode() {
+  pendingPairingCode = { code: String(Math.floor(100000 + Math.random() * 900000)), expiresAt: Date.now() + 10 * 60 * 1000 };
+  return pendingPairingCode;
+}
+function generateLanPin() {
+  pendingLanPin = { pin: String(Math.floor(100000 + Math.random() * 900000)), expiresAt: Date.now() + 10 * 60 * 1000 };
+  return pendingLanPin;
+}
+
+// Remote-triggered downloads/torrent saves go into the SAME global History
+// as every other module (window.api.history in the renderer, appendHistory
+// here) — no separate log for this module. `source` just says which phone
+// channel triggered it, same slot other integrations use for the site/tool name.
+function remoteSourceLabel(transport) {
+  return transport === 'telegram' ? 'Telegram' : 'LAN';
+}
+
+// Per-sender session for multi-turn torrent result paging/selection (a bare
+// number picks a result, "altri" pages). Keyed per transport+sender so two
+// different phones (or Telegram + LAN) never cross-talk.
+const remoteSessions      = new Map(); // key -> { query, results, page, at }
+const REMOTE_SESSION_TTL  = 10 * 60 * 1000;
+const RESULTS_PER_PAGE    = 5;
+function getRemoteSession(key) {
+  const s = remoteSessions.get(key);
+  if (s && Date.now() - s.at < REMOTE_SESSION_TTL) return s;
+  remoteSessions.delete(key);
+  return null;
+}
+
+// Keycap emoji instead of plain "1." — renders as a real number regardless of
+// transport (Telegram bubble, LAN page textContent) since it's plain unicode,
+// not markup. The shared dispatcher has no notion of "Telegram formatting" vs
+// "LAN formatting" by design, so any visibility fix has to work as plain text.
+const RESULT_NUMBER_EMOJI = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
+
+// Curated subset of the Media tab's format presets — small enough to fit a
+// numbered chat menu. Codes match the `format` switch in runMediaDownload.
+const REMOTE_FORMAT_OPTIONS = [
+  { code: 'video_1080', label: 'Video MP4 1080p' },
+  { code: 'video_720',  label: 'Video MP4 720p' },
+  { code: 'audio_320',  label: 'Solo audio MP3 (320k)' },
+  { code: 'mkv',        label: 'Migliore qualità (MKV)' }
+];
+
+// Keyword aliases accepted as the optional 2nd argument of "/download <url> <format>",
+// so a phone user can trigger a specific format in one message instead of the
+// numbered-menu round trip. Maps onto the same REMOTE_FORMAT_OPTIONS codes.
+const REMOTE_FORMAT_ALIASES = {
+  '1080p': 'video_1080', '1080': 'video_1080',
+  '720p':  'video_720',  '720':  'video_720',
+  'mp3':   'audio_320',  'audio': 'audio_320', '320': 'audio_320',
+  'mkv':   'mkv',        'best':  'mkv'
+};
+
+// Explicit slash commands are Telegram-idiomatic sugar over the exact same
+// free-text flows below (see handleRemoteCommandInner) — kept as one hardcoded
+// Italian block like every other bot reply string (see flux-mobile-companion
+// memory: bot text is never per-locale, only the in-app Settings guide is).
+const REMOTE_HELP_TEXT = [
+  '🤖 Comandi disponibili:',
+  '/download <url> [formato] — scarica un URL. Formati: 1080p, 720p, mp3, mkv. Senza formato, scegli da un menu.',
+  '/torrent <titolo> — cerca un torrent.',
+  '/trailer <titolo> — cerca il trailer su YouTube.',
+  '/login <codice> — associa un nuovo telefono (dalla sua chat, non ancora associata).',
+  '/help — mostra questo elenco.',
+  '',
+  'Funziona anche senza comandi: incolla un URL o un magnet, scrivi un titolo per cercarlo nei torrent, o "trailer <titolo>".'
+].join('\n');
+
+// Pushes a completed remote action to the desktop renderer (if FLUX is open)
+// so it shows up in the External Downloads tracker / desktop notification /
+// History exactly like a download started from the UI — otherwise a
+// phone-triggered download is invisible everywhere except the log, since it
+// never goes through any renderer code path. `entry` is the same shape saved
+// to History (kind, name, ok, path, error, source).
+function recordRemoteHistory(entry) {
+  appendHistory(entry);
+  safeSend(mainWindow?.webContents, 'remote:actionDone', entry);
+}
+
+// Shown after a bare URL (no format specified yet) — either typed directly or
+// via "/download <url>" without the optional format argument. Shared so the
+// two entry points don't duplicate the menu-building/session-write logic.
+async function remotePromptFormatMenu(url, title, sessionKey, replyFn) {
+  remoteSessions.set(sessionKey, { type: 'format', url, title, at: Date.now() });
+  const lines = [];
+  if (title) lines.push(`🎬 ${title}`);
+  lines.push(...REMOTE_FORMAT_OPTIONS.map((o, i) => `${RESULT_NUMBER_EMOJI[i] || `${i + 1}.`} ${o.label}`));
+  lines.push('Rispondi con un numero per scegliere il formato e avviare il download.');
+  await replyFn(lines.join('\n'));
+}
+
+// Actually runs a media download once url+format are both known — reached
+// either from picking a number off remotePromptFormatMenu's menu, or directly
+// from "/download <url> <format>" skipping the menu entirely.
+async function remoteRunFormatDownload(url, formatCode, title, replyFn, ctx, senderEvent) {
+  const cfg = loadConfig();
+  if (!(await ensureRemoteBinaries(['yt-dlp', 'ffmpeg', 'ffprobe'], replyFn))) return;
+  const opt = REMOTE_FORMAT_OPTIONS.find(o => o.code === formatCode);
+  await replyFn(`⬇️ Avvio download (${opt ? opt.label : formatCode})...`);
+  const res = await runMediaDownloadRetry(senderEvent, url, formatCode, cfg.download_folder, 2);
+  // Prefer the probed title over the raw URL/path basename — yt-dlp doesn't
+  // always log a parsable "Destination:" line (format/extractor dependent,
+  // same limitation as the desktop Media tab), so `res.path` can be null on a
+  // perfectly successful download. Falling back to the URL there would show a
+  // bare link in History instead of a title.
+  const displayName = title || url;
+  await replyFn(res.ok ? `✅ Scaricato: ${displayName}` : `Errore download: ${res.error || 'sconosciuto'}`);
+  recordRemoteHistory({ kind: 'media', name: displayName, ok: res.ok, error: res.ok ? null : res.error, path: res.path || null, source: remoteSourceLabel(ctx.transport) });
+}
+
+async function sendResultsPage(session, replyFn) {
+  const start = session.page * RESULTS_PER_PAGE;
+  const page  = session.results.slice(start, start + RESULTS_PER_PAGE);
+  if (!page.length) { session.page = Math.max(0, session.page - 1); await replyFn('Non ci sono altri risultati.'); return; }
+  const lines = page.map((r, i) => `${RESULT_NUMBER_EMOJI[i] || `${i + 1}.`} ${r.name} — ${r.seeds ?? '?'} seed, ${r.size || 'N/A'}`);
+  const hasMore = start + RESULTS_PER_PAGE < session.results.length;
+  lines.push(hasMore ? 'Rispondi con un numero per scaricare, o "altri" per i prossimi 5.' : 'Rispondi con un numero per scaricare.');
+  await replyFn(lines.join('\n'));
+}
+
+// The desktop Media/Live/Radio tabs gate on ensureBinaries() in the renderer,
+// which — when something's missing — routes the UI to a download prompt and
+// aborts, since the fetch needs an on-screen confirmation. A phone has no
+// FLUX screen to route to, so the Remote dispatcher fetches directly instead:
+// otherwise a fresh slim install (no bundled binaries) would hard-fail every
+// phone-triggered command with "yt-dlp is missing — reinstall FLUX", which is
+// both wrong (nothing needs reinstalling) and a dead end for the user.
+async function ensureRemoteBinaries(ids, replyFn) {
+  const missing = ids.filter(id => !binaryFetcher.isPresent(id, VENDOR_DIR));
+  if (!missing.length) return true;
+  await replyFn(`⬇️ Scarico i componenti mancanti (${missing.join(', ')})... può richiedere un minuto.`);
+  for (const bid of missing) {
+    if (binaryFetcher.isPresent(bid, VENDOR_DIR)) continue; // e.g. the ffmpeg archive also yields ffprobe
+    const r = await binaryFetcher.fetchBinary(bid, { vendorDir: VENDOR_DIR });
+    if (!r.ok) {
+      log('ERROR', `remote: binary fetch ${bid} failed: ${r.error}`);
+      await replyFn(`Errore scaricando ${bid}: ${r.error}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+// Shared by the magnet-link and numbered-pick branches: if the user has a
+// torrent client configured (Settings → Integrations → Send to client), hand
+// the magnet/URL off to it directly (useful when triggering from the phone —
+// you want the download starting now, not a .torrent file waiting on the
+// desktop). Falls back to the normal local save when send-to-client is off,
+// not configured, or the client is unreachable.
+async function remoteHandleTorrentItem(item, ctx) {
+  const cfg = loadConfig();
+  if (cfg.sendto_enabled) {
+    const sent = await sendToTorrentClient({ magnet: item.magnet, url: item.url, name: item.name });
+    if (sent.ok) {
+      recordRemoteHistory({ kind: 'torrent', name: item.name, ok: true, error: null, path: null, source: `${remoteSourceLabel(ctx.transport)} → ${sent.sentTo || cfg.sendto_type}` });
+      return `✅ Inviato a ${sent.sentTo || cfg.sendto_type}: ${item.name}`;
+    }
+  }
+  const saved = await saveTorrentItem(item, cfg.download_folder);
+  recordRemoteHistory({ kind: 'torrent', name: item.name, ok: saved.ok, error: saved.ok ? null : saved.error, path: saved.path || null, source: remoteSourceLabel(ctx.transport) });
+  if (!saved.ok) return `Errore: ${saved.error}`;
+  return cfg.sendto_enabled
+    ? `⚠️ Client torrent non raggiungibile, salvato il file: ${saved.path}`
+    : `✅ Salvato: ${saved.path}`;
+}
+
+// The shared dispatcher. `replyFn(text)` sends the response back on whatever
+// channel the command arrived on; `ctx = { transport, sessionKey }` scopes
+// the paging session. Media/torrent calls pass `{ sender: mainWindow.webContents }`
+// as their "event" so progress + results also show up live on desktop when
+// FLUX is open, exactly like a normal in-app action.
+//
+// Every reachable branch below already replies, but this wrapper is the
+// safety net: if anything throws unexpectedly (network hiccup, bug), the
+// user on the other end MUST still get something back — with no FLUX screen
+// in front of them, a silent failure is indistinguishable from "message
+// never arrived", which is worse than an ugly error reply.
+async function handleRemoteCommand(text, replyFn, ctx) {
+  try {
+    await handleRemoteCommandInner(text, replyFn, ctx);
+  } catch (e) {
+    log('ERROR', `remote: unhandled error in dispatcher: ${e.message}`);
+    try { await replyFn(`❌ Errore imprevisto: ${e.message}`); } catch { /* reply channel itself is down — nothing more we can do */ }
+  }
+}
+
+async function handleRemoteCommandInner(text, replyFn, ctx) {
+  let trimmed = String(text || '').trim();
+  if (!trimmed) return;
+  const cfg = loadConfig();
+  const senderEvent = { sender: mainWindow?.webContents };
+  const sessionKey  = ctx.sessionKey;
+
+  // /help (and /start, Telegram's own first-contact command) → command list.
+  // Only ever reached for an already-whitelisted sender: handleTelegramUpdate
+  // gates unpaired chats before calling this dispatcher at all, so this can't
+  // be used to probe a stranger bot for "is anyone listening" (same
+  // anti-enumeration property as every other reply here).
+  if (/^\/(help|start)\b/i.test(trimmed)) { await replyFn(REMOTE_HELP_TEXT); return; }
+
+  // /login only makes sense from a NOT-yet-paired chat, handled earlier in
+  // handleTelegramUpdate (mirrors the bare-code check). Reaching it here means
+  // the sender is already paired — say so instead of falling through to a
+  // torrent search for the literal text "/login ...".
+  if (/^\/login\b/i.test(trimmed)) { await replyFn('Questo telefono è già associato a FLUX.'); return; }
+
+  // "/torrent <query>" and "/trailer <title>" are sugar over the free-text
+  // flows below — rewrite `trimmed` into the equivalent free-text form so
+  // there's exactly one implementation of each action.
+  const torrentCmdMatch = trimmed.match(/^\/torrent\s+(.+)$/i);
+  if (torrentCmdMatch) trimmed = torrentCmdMatch[1].trim();
+  const trailerCmdMatch = trimmed.match(/^\/trailer\s+(.+)$/i);
+  if (trailerCmdMatch) trimmed = `trailer ${trailerCmdMatch[1].trim()}`;
+
+  // "/download <url> [format]" — same URL flow as pasting a bare link, but
+  // skips the numbered-menu round trip when a recognized format keyword is
+  // given (e.g. "/download https://... 1080p").
+  const downloadCmdMatch = trimmed.match(/^\/download\s+(\S+)(?:\s+(\S+))?/i);
+  if (downloadCmdMatch) {
+    const url    = downloadCmdMatch[1];
+    const fmtKey = downloadCmdMatch[2] ? downloadCmdMatch[2].toLowerCase() : null;
+    if (!/^https?:\/\//i.test(url)) { await replyFn('/download richiede un URL valido (http/https).'); return; }
+    if (isDrmHost(url)) { await replyFn('Piattaforma DRM-protetta — non supportata.'); return; }
+    const formatCode = fmtKey ? REMOTE_FORMAT_ALIASES[fmtKey] : null;
+    if (fmtKey && !formatCode) {
+      await replyFn(`Formato "${fmtKey}" non riconosciuto. Usa: 1080p, 720p, mp3, mkv — oppure /download <url> senza formato per scegliere da un menu.`);
+      return;
+    }
+    if (!(await ensureRemoteBinaries(['yt-dlp'], replyFn))) return;
+    const probe = await probeMedia(url).catch(() => ({ ok: false }));
+    const title = probe.ok && probe.title ? probe.title : null;
+    if (formatCode) { await remoteRunFormatDownload(url, formatCode, title, replyFn, ctx, senderEvent); return; }
+    await remotePromptFormatMenu(url, title, sessionKey, replyFn);
+    return;
+  }
+
+  // "altri" → next page of the last search in this session.
+  if (/^(altri|more)$/i.test(trimmed)) {
+    const s = getRemoteSession(sessionKey);
+    if (!s || s.type !== 'torrent') { await replyFn('Nessuna ricerca recente da continuare.'); return; }
+    s.page++; s.at = Date.now();
+    await sendResultsPage(s, replyFn);
+    return;
+  }
+
+  // A bare number → either a format choice (pending media download) or a
+  // torrent-result pick, depending on what's waiting in this session.
+  if (/^\d{1,2}$/.test(trimmed)) {
+    const s = getRemoteSession(sessionKey);
+    const idx = parseInt(trimmed, 10) - 1;
+
+    if (s && s.type === 'format') {
+      const opt = REMOTE_FORMAT_OPTIONS[idx];
+      if (!opt) { await replyFn('Numero non valido — scegli uno dei formati proposti.'); return; }
+      remoteSessions.delete(sessionKey);
+      await remoteRunFormatDownload(s.url, opt.code, s.title, replyFn, ctx, senderEvent);
+      return;
+    }
+
+    const item = s && s.type === 'torrent' && s.results[s.page * RESULTS_PER_PAGE + idx];
+    if (!item) { await replyFn('Numero non valido — rifai la ricerca.'); return; }
+    await replyFn(await remoteHandleTorrentItem(item, ctx));
+    return;
+  }
+
+  // Shazam share-link → resolve to "<title>" and fall through to the
+  // torrent-search branch below (same handling as any free-text query).
+  const shazamMatch = trimmed.match(/^https?:\/\/(www\.)?shazam\.com\/track\/\d+\/([a-z0-9-]+)/i);
+  const query = shazamMatch ? shazamMatch[2].replace(/-/g, ' ') : trimmed;
+
+  // "trailer <title>" → same ytsearch adapter as the player's Correlati panel.
+  const trailerMatch = !shazamMatch && trimmed.match(/^trailer\s+(.+)$/i);
+  if (trailerMatch) {
+    const title = trailerMatch[1].trim();
+    if (!(await ensureRemoteBinaries(['yt-dlp'], replyFn))) return;
+    await replyFn(`🎬 Cerco il trailer di "${title}"...`);
+    try {
+      const items = await relatedFromSearch(`${title} trailer`);
+      if (!items.length) { await replyFn('Nessun trailer trovato.'); return; }
+      await replyFn(`🎬 ${items[0].title}\n${items[0].url}`);
+    } catch (e) {
+      await replyFn(`Errore ricerca trailer: ${e.message}`);
+    }
+    return;
+  }
+
+  // Raw magnet link.
+  if (/^magnet:\?/i.test(trimmed)) {
+    const item = { name: `magnet-${Date.now()}`, type: 'magnet', magnet: trimmed };
+    await replyFn(await remoteHandleTorrentItem(item, ctx));
+    return;
+  }
+
+  // Any other URL (not a Shazam link) → ask which format, same presets as
+  // the Media tab, then download on the numbered reply.
+  if (!shazamMatch && /^https?:\/\//i.test(trimmed)) {
+    if (isDrmHost(trimmed)) { await replyFn('Piattaforma DRM-protetta — non supportata.'); return; }
+    if (!(await ensureRemoteBinaries(['yt-dlp'], replyFn))) return;
+    // Probe the title now (same call the Media tab uses for its preview) so
+    // History/replies show a real title even if yt-dlp's own output later
+    // doesn't yield a parsable final path (format/extractor dependent).
+    const probe = await probeMedia(trimmed).catch(() => ({ ok: false }));
+    const title = probe.ok && probe.title ? probe.title : null;
+    await remotePromptFormatMenu(trimmed, title, sessionKey, replyFn);
+    return;
+  }
+
+  // Any slash command not matched above (typo, unsupported) → point to /help
+  // instead of silently running it as a torrent-search query for "/whatever".
+  if (trimmed.startsWith('/')) { await replyFn('Comando non riconosciuto. Scrivi /help per la lista dei comandi.'); return; }
+
+  // Free text (or a Shazam-resolved title) → torrent search, top-5 paginated.
+  await replyFn(`🔎 Cerco torrent per "${query}"...`);
+  const { results, errors } = await runTorrentSearch(senderEvent, query, cfg);
+  if (!results.length) {
+    await replyFn(errors.length ? `Nessun risultato (${errors[0]}).` : 'Nessun risultato.');
+    return;
+  }
+  remoteSessions.set(sessionKey, { type: 'torrent', query, results, page: 0, at: Date.now() });
+  await sendResultsPage(remoteSessions.get(sessionKey), replyFn);
+}
+
+// ─── REMOTE: TELEGRAM TRANSPORT ───────────────────────────────────────────────
+function telegramApiUrl(token, method) {
+  return `https://api.telegram.org/bot${token}/${method}`;
+}
+
+async function telegramSendMessage(token, chatId, text) {
+  try { await httpPostJSON(telegramApiUrl(token, 'sendMessage'), { chat_id: chatId, text }, { timeout: 10000 }); }
+  catch (e) { log('WARN', `remote telegramSendMessage: ${e.message}`); }
+}
+
+// Populates Telegram's native "/" autocomplete menu in the client so the
+// commands are discoverable without reading the in-app guide first. Harmless
+// to call repeatedly (idempotent on Telegram's side) — fired once per polling
+// start, i.e. on boot and whenever the token changes.
+async function telegramSetMyCommands(token) {
+  const commands = [
+    { command: 'help',     description: 'Elenco comandi' },
+    { command: 'download', description: 'Scarica un URL' },
+    { command: 'torrent',  description: 'Cerca un torrent' },
+    { command: 'trailer',  description: 'Cerca un trailer' },
+    { command: 'login',    description: 'Associa un telefono' }
+  ];
+  try { await httpPostJSON(telegramApiUrl(token, 'setMyCommands'), { commands }, { timeout: 10000 }); }
+  catch (e) { log('WARN', `remote telegramSetMyCommands: ${e.message}`); }
+}
+
+async function handleTelegramUpdate(token, update) {
+  const msg = update.message;
+  if (!msg) return;
+  const chatId = msg.chat && msg.chat.id;
+  if (chatId == null) return;
+  const cfg = loadConfig();
+  const whitelisted = (cfg.remote_whitelist || []).some(w => String(w.chatId) === String(chatId));
+
+  if (!msg.text) {
+    // Non-text message (photo, sticker, voice note...). Only worth a reply
+    // once paired — a stranger's non-text message stays silent like any
+    // other unrecognized message (same reasoning as the block below).
+    if (whitelisted) {
+      await telegramSendMessage(token, chatId, 'Per ora capisco solo testo: un URL, una ricerca, "trailer <titolo>" o un link magnet.');
+    }
+    return;
+  }
+  const text = msg.text.trim();
+
+  if (!whitelisted) {
+    // Only a matching, unexpired pairing code (generated from the Remote
+    // panel) whitelists a new chat. Any other message from an unrecognized
+    // chat is silently dropped — no reply, so a stranger who finds the bot
+    // gets no confirmation it's even listening. "/login <code>" is accepted
+    // as an alias for typing the bare code, same check either way.
+    const loginMatch = text.match(/^\/login\s+(\d{6})$/i);
+    const code = loginMatch ? loginMatch[1] : text;
+    if (pendingPairingCode && pendingPairingCode.code === code && Date.now() < pendingPairingCode.expiresAt) {
+      const entry = {
+        chatId,
+        label: msg.chat.username ? `@${msg.chat.username}` : (msg.chat.first_name || String(chatId)),
+        pairedAt: new Date().toISOString()
+      };
+      const updated = loadConfig();
+      updated.remote_whitelist = [...(updated.remote_whitelist || []), entry];
+      saveConfig(updated);
+      pendingPairingCode = null;
+      await telegramSendMessage(token, chatId, '✅ Telefono associato a FLUX.');
+      safeSend(mainWindow?.webContents, 'remote:paired', entry);
+      log('INFO', `remote: Telegram chat ${chatId} paired`);
+    }
+    return;
+  }
+
+  await handleRemoteCommand(text, replyText => telegramSendMessage(token, chatId, replyText),
+    { transport: 'telegram', sessionKey: `tg:${chatId}` });
+}
+
+function startTelegramPolling(token) {
+  if (telegramPolling) return;
+  telegramPolling = true;
+  telegramOffset  = 0;
+  telegramSetMyCommands(token);
+  const tick = async () => {
+    if (!telegramPolling) return;
+    try {
+      const url  = `${telegramApiUrl(token, 'getUpdates')}?timeout=0&offset=${telegramOffset}`;
+      const data = await fetchJSONWithUA(url, 'FLUX/1.0.0', 8000);
+      if (data && data.ok && Array.isArray(data.result)) {
+        for (const update of data.result) {
+          telegramOffset = update.update_id + 1;
+          try { await handleTelegramUpdate(token, update); }
+          catch (e) { log('WARN', `remote: telegram update handling: ${e.message}`); }
+        }
+      }
+    } catch (e) { /* transient network error — retried next tick */ }
+    if (telegramPolling) telegramPollTimer = setTimeout(tick, 3000);
+  };
+  tick();
+  log('INFO', 'remote: Telegram polling started');
+}
+
+function stopTelegramPolling() {
+  telegramPolling = false;
+  if (telegramPollTimer) { clearTimeout(telegramPollTimer); telegramPollTimer = null; }
+  telegramActiveToken = null;
+  log('INFO', 'remote: Telegram polling stopped');
+}
+
+// ─── REMOTE: LAN TRANSPORT (mini web server) ─────────────────────────────────
+function getLanIPv4() {
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name] || []) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return '127.0.0.1';
+}
+
+function parseCookies(req) {
+  const out = {};
+  (req.headers.cookie || '').split(';').forEach(part => {
+    const i = part.indexOf('=');
+    if (i > -1) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  });
+  return out;
+}
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', c => { data += c; if (data.length > 1e6) req.destroy(); });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+// Minimal dark styling so the pairing/command page doesn't look like an OS
+// default form — same spirit as the desktop UI's "no standard HTML" rule,
+// scaled down for a single utility page served outside the app shell.
+const LAN_PAGE_STYLE = `body{background:#0b0b0b;color:#eee;font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;padding:0 16px}
+input,button{width:100%;box-sizing:border-box;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #333;background:#1a1a1a;color:#eee;font-size:16px}
+button{background:#c8f542;color:#0b0b0b;font-weight:600;border:none;cursor:pointer}
+.log{white-space:pre-wrap;background:#141414;border-radius:8px;padding:12px;margin-top:16px;font-size:14px;line-height:1.5;min-height:80px}
+h1{font-size:20px}`;
+
+async function handleLanRequest(req, res) {
+  const u       = new URL(req.url, `http://${req.headers.host}`);
+  const cookies = parseCookies(req);
+  const token   = cookies.flux_session;
+  const paired  = token && lanSessions.has(token);
+
+  if (u.pathname === '/pair' && req.method === 'GET') {
+    const pin = u.searchParams.get('pin') || '';
+    if (pendingLanPin && pendingLanPin.pin === pin && Date.now() < pendingLanPin.expiresAt) {
+      const newToken = require('crypto').randomBytes(24).toString('hex');
+      const entry = { token: newToken, label: `LAN — ${new Date().toLocaleDateString()}`, pairedAt: new Date().toISOString() };
+      const updated = loadConfig();
+      updated.remote_lan_devices = [...(updated.remote_lan_devices || []), entry];
+      saveConfig(updated);
+      lanSessions.set(newToken, { label: entry.label, at: Date.now() });
+      pendingLanPin = null;
+      res.writeHead(302, { Location: '/', 'Set-Cookie': `flux_session=${newToken}; Path=/; Max-Age=31536000; HttpOnly` });
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>FLUX Remote</title><style>${LAN_PAGE_STYLE}</style></head><body><h1>FLUX Remote</h1><p>PIN non valido o scaduto.</p></body></html>`);
+  }
+
+  if (u.pathname === '/qr.png' && req.method === 'GET') {
+    if (!pendingLanPin || Date.now() >= pendingLanPin.expiresAt) { res.writeHead(404); return res.end(); }
+    const QRCode  = require('qrcode');
+    const pairUrl = `http://${getLanIPv4()}:${lanServerPort}/pair?pin=${pendingLanPin.pin}`;
+    const buf     = await QRCode.toBuffer(pairUrl, { width: 300, margin: 1 });
+    res.writeHead(200, { 'Content-Type': 'image/png' });
+    return res.end(buf);
+  }
+
+  if (u.pathname === '/command' && req.method === 'POST') {
+    if (!paired) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: false, error: 'not paired' })); }
+    const body = await readRequestBody(req);
+    let text = '';
+    try { text = String(JSON.parse(body).text || ''); } catch { /* empty text below */ }
+    const replies = [];
+    await handleRemoteCommand(text, async (msg) => { replies.push(msg); }, { transport: 'lan', sessionKey: `lan:${token}` });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ ok: true, replies }));
+  }
+
+  if (u.pathname === '/' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    if (!paired) {
+      return res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>FLUX Remote</title><style>${LAN_PAGE_STYLE}</style></head><body>
+<h1>FLUX Remote</h1><p>Inquadra il QR dal pannello Remote di FLUX, oppure inserisci qui il PIN mostrato lì.</p>
+<form method="GET" action="/pair"><input name="pin" placeholder="PIN a 6 cifre" maxlength="6" inputmode="numeric"><button type="submit">Associa</button></form>
+</body></html>`);
+    }
+    return res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>FLUX Remote</title><style>${LAN_PAGE_STYLE}</style></head><body>
+<h1>FLUX Remote</h1>
+<form id="f"><input name="text" placeholder="URL, ricerca torrent, o &quot;trailer &lt;titolo&gt;&quot;" autofocus autocomplete="off"><button type="submit">Invia</button></form>
+<div class="log" id="log"></div>
+<script>
+document.getElementById('f').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var input = e.target.text;
+  var text = input.value.trim();
+  if (!text) return;
+  var logEl = document.getElementById('log');
+  logEl.textContent += '\\n> ' + text;
+  input.value = '';
+  try {
+    var r = await fetch('/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) });
+    var data = await r.json();
+    (data.replies || []).forEach(function (m) { logEl.textContent += '\\n' + m; });
+  } catch (err) {
+    logEl.textContent += '\\n\\u26a0\\ufe0f Errore di comunicazione con FLUX.';
+  }
+  logEl.scrollTop = logEl.scrollHeight;
+});
+</script>
+</body></html>`);
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('Not found');
+}
+
+function startLanServer(port) {
+  const http = require('http');
+  lanServer = http.createServer((req, res) => {
+    handleLanRequest(req, res).catch(e => {
+      log('ERROR', `remote LAN request: ${e.message}`);
+      try { res.writeHead(500); res.end('Internal error'); } catch { /* response already sent */ }
+    });
+  });
+  lanServer.on('error', e => log('ERROR', `remote LAN server: ${e.message}`));
+  lanServer.listen(port, '0.0.0.0', () => log('INFO', `remote: LAN server listening on ${port}`));
+  lanServerPort = port;
+  // Reload paired-device sessions from config so a server restart (port
+  // change, app relaunch) doesn't force every already-paired phone to redo
+  // the PIN flow.
+  lanSessions.clear();
+  for (const d of (loadConfig().remote_lan_devices || [])) lanSessions.set(d.token, { label: d.label, at: Date.now() });
+}
+
+function stopLanServer() {
+  if (lanServer) { try { lanServer.close(); } catch { /* already closed */ } lanServer = null; }
+  lanServerPort = null;
+  log('INFO', 'remote: LAN server stopped');
+}
+
+// ─── REMOTE: SERVICE SYNC + IPC ───────────────────────────────────────────────
+// Idempotent — called after every config:save and once at app startup. Starts,
+// stops, or restarts each transport only when something relevant actually
+// changed, so a save that touches unrelated settings is a no-op here.
+function syncRemoteServicesWithConfig(cfg) {
+  if (cfg.remote_bot_token) {
+    if (telegramActiveToken !== cfg.remote_bot_token) {
+      stopTelegramPolling();
+      telegramActiveToken = cfg.remote_bot_token;
+      startTelegramPolling(cfg.remote_bot_token);
+    }
+  } else if (telegramPolling) {
+    stopTelegramPolling();
+  }
+
+  const desiredPort = cfg.remote_lan_port || 8765;
+  if (cfg.remote_lan_enabled) {
+    if (!lanServer || lanServerPort !== desiredPort) {
+      stopLanServer();
+      startLanServer(desiredPort);
+    }
+  } else if (lanServer) {
+    stopLanServer();
+  }
+}
+
+ipcMain.handle('remote:generatePairingCode', () => {
+  const cfg = loadConfig();
+  if (!cfg.remote_bot_token) return { ok: false, error: 'Configura prima il token del bot Telegram.' };
+  const p = generatePairingCode();
+  return { ok: true, code: p.code, expiresAt: p.expiresAt };
+});
+
+ipcMain.handle('remote:generateLanPin', () => {
+  const cfg = loadConfig();
+  if (!cfg.remote_lan_enabled || !lanServer) return { ok: false, error: 'Attiva prima il server LAN.' };
+  const p = generateLanPin();
+  const base = `http://${getLanIPv4()}:${lanServerPort}`;
+  return { ok: true, pin: p.pin, expiresAt: p.expiresAt, url: `${base}/`, pairUrl: `${base}/pair?pin=${p.pin}`, qrUrl: `${base}/qr.png` };
+});
+
+ipcMain.handle('remote:getStatus', () => {
+  const cfg = loadConfig();
+  return {
+    telegramConfigured: !!cfg.remote_bot_token,
+    telegramPolling,
+    whitelist:   cfg.remote_whitelist || [],
+    lanEnabled:  !!cfg.remote_lan_enabled,
+    lanRunning:  !!lanServer,
+    lanPort:     cfg.remote_lan_port || 8765,
+    lanIp:       getLanIPv4(),
+    lanDevices:  cfg.remote_lan_devices || []
+  };
+});
+
+ipcMain.handle('remote:removeWhitelistChat', (_, chatId) => {
+  const cfg = loadConfig();
+  cfg.remote_whitelist = (cfg.remote_whitelist || []).filter(w => String(w.chatId) !== String(chatId));
+  saveConfig(cfg);
+  return { ok: true };
+});
+
+ipcMain.handle('remote:removeLanDevice', (_, token) => {
+  const cfg = loadConfig();
+  cfg.remote_lan_devices = (cfg.remote_lan_devices || []).filter(d => d.token !== token);
+  saveConfig(cfg);
+  lanSessions.delete(token);
+  return { ok: true };
+});

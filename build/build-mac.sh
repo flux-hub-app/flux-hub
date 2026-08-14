@@ -13,11 +13,36 @@ else
     CYAN=''; YELLOW=''; GREEN=''; DARKGREEN=''; DARKGRAY=''; RED=''; NC=''
 fi
 
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    echo
+    echo -e "${CYAN}FLUX -- build & launch helper (macOS)${NC}"
+    echo
+    echo -e "  ${DARKGRAY}./build.sh              Build natively for this OS${NC}"
+    echo -e "  ${DARKGRAY}./build.sh -h|--help    Show this help${NC}"
+    echo
+    echo -e "  ${CYAN}Dev mode (no build, fastest iteration):${NC}"
+    echo "    npm install"
+    echo -e "    npm run fetch-all      ${DARKGRAY}yt-dlp + ffmpeg + fpcalc into vendor/ (first time only)${NC}"
+    echo "    npm start"
+    echo
+    echo -e "  ${DARKGRAY}Output : dist/FLUX Hub-*.dmg + .zip (x64 + arm64)${NC}"
+    echo -e "  ${DARKGRAY}Log    : build/build-mac.log${NC}"
+    echo -e "  ${DARKGRAY}Details: build/README.md${NC}"
+    echo
+    exit 0
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Scripts now live in <repo>/build/, project root is one level up.
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$PROJECT_ROOT/dist"
 cd "$PROJECT_ROOT"
+
+# Mirror everything to build/build-mac.log (ANSI colour codes stripped for
+# readability in a plain editor) while the terminal still gets the live
+# coloured output. Lives next to the script, not in the project root.
+LOG_FILE="$SCRIPT_DIR/build-mac.log"
+exec > >(tee >(sed -u 's/\x1b\[[0-9;]*m//g' > "$LOG_FILE")) 2>&1
 
 # Refuse to run on non-macOS — .icns generation and codesigning need Darwin.
 if [ "$(uname -s)" != "Darwin" ]; then

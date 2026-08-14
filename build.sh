@@ -6,6 +6,10 @@
 #   - macOS  → build/build-mac.sh   (.dmg + .zip, x64 + arm64)
 #   - Linux  → build/build-linux.sh (.AppImage + .deb + .rpm)
 #
+# Usage:
+#   ./build.sh              -> build natively for this OS
+#   ./build.sh -h | --help  -> show usage and exit (no build)
+#
 # Cross-builds were removed: per-platform scripts now run only on their native
 # OS so the output matches what Release CI produces.
 #   Windows users: use .\build.ps1 on Windows.
@@ -43,8 +47,15 @@ if [ ! -f "$script" ]; then
     exit 1
 fi
 
+chmod +x "$script" 2>/dev/null || true
+
+# -h/--help forwards straight through — the per-platform script owns the
+# actual help text so it stays in one place.
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    exec bash "$script" --help
+fi
+
 echo -e "  ${DARKGRAY}Launching: ${script#$SCRIPT_DIR/}${NC}"
 echo
 
-chmod +x "$script" 2>/dev/null || true
 exec bash "$script"

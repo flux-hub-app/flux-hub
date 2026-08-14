@@ -10,6 +10,7 @@
 #   .\build.ps1 -NoLaunch    -> build, never ask (CI / scripted use)
 #   .\build.ps1 -CleanData   -> also wipe %APPDATA%\FLUX (settings + fetched
 #                               binaries) for a first-launch-clean test
+#   .\build.ps1 -Help        -> show usage and exit (no build)
 #
 # Cross-builds were removed: a previous version of this dispatcher offered
 # .\build.ps1 mac and .\build.ps1 linux, which produced .zip/.tar.gz via
@@ -23,7 +24,9 @@
 param(
     [switch]$Launch,
     [switch]$NoLaunch,
-    [switch]$CleanData
+    [switch]$CleanData,
+    [Alias('h','?')]
+    [switch]$Help
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -70,16 +73,23 @@ try {
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $buildScript = Join-Path $scriptDir 'build\build-win.ps1'
 
+if (-not (Test-Path $buildScript)) {
+    Write-Host "ERROR: Build script not found: $buildScript" -ForegroundColor Red
+    exit 1
+}
+
+# -Help skips the banner/UAC noise below and just forwards straight through —
+# build-win.ps1 owns the actual help text so it stays in one place.
+if ($Help) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildScript -Help
+    exit $LASTEXITCODE
+}
+
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host '  FLUX -- Windows build' -ForegroundColor Cyan
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host ''
-
-if (-not (Test-Path $buildScript)) {
-    Write-Host "ERROR: Build script not found: $buildScript" -ForegroundColor Red
-    exit 1
-}
 
 Write-Host "  Launching: build\build-win.ps1" -ForegroundColor DarkGray
 Write-Host '  (The script will self-elevate via UAC if it needs admin rights.)' -ForegroundColor DarkGray

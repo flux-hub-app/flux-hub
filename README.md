@@ -203,6 +203,8 @@ Then on each host run the matching dispatcher (**must run natively** — no cros
 `build.sh` auto-detects macOS vs Linux and routes to the right script in `build/`. Output
 lands in `dist/`. For multi-platform releases use GitHub Actions (see *Release process*).
 
+> Quick reference (flags, what each step does, where logs land): [`build/README.md`](./build/README.md).
+
 ### What the build script does
 
 Each per-platform script (`build/build-{win|mac|linux}.{ps1|sh}`) runs:
