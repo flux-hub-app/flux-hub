@@ -2,6 +2,7 @@
   "_doc": "FLUX module registry — single source of truth for the modular architecture. Read by main.js (config validation, binary fetcher) and renderer.js (Settings > Modules page, tab visibility). Each module declares its tabs (so the UI can hide them when disabled), its required vendor binaries (so the first-launch fetcher downloads only what's needed), and a stable id (used as the config key for enabled/disabled state). Phase 1: code still lives in main.js + renderer.js — modules/<id>/ folders are placeholders for the Phase 2 physical refactor.",
   "version": 1,
   "_doc_tabBinaries": "Per-TAB binary requirements (finer than per-module). Drives the lazy download: a nav item shows a download arrow only when ITS tab needs binaries that aren't installed. Tabs NOT listed here need nothing to be opened (e.g. radio/rss/spotify just browse/play/parse in the renderer — recording/downloading prompts at action time). A module's full binary set still lives in modules[].binaries (used by Settings > Modules + the Identify trigger).",
+  "_doc_server": "`server: true` means server.js actually has REST routes wired for this module's IPC channels (Fase G, .claude/plans — audited Electron-free, but REST routes land incrementally per step). server.js derives SERVER_MODULE_IDS from this field instead of a hardcoded array. A module missing `server` (or `false`) is treated as desktop-only for now — not because it NEEDS Electron (the Fase G audit found none of the 13 modules do), only because its REST routes don't exist yet.",
   "tabBinaries": {
     "media":  ["yt-dlp", "ffmpeg", "ffprobe"],
     "live":   ["yt-dlp", "ffmpeg", "ffprobe"],
@@ -11,7 +12,10 @@
     "yt-dlp":  { "approx_mb": 25, "purpose": "URL-based downloader (YouTube, podcasts, 1000+ sites)" },
     "ffmpeg":  { "approx_mb": 80, "purpose": "Video/audio encode + mux + filter (trim, convert, normalize)" },
     "ffprobe": { "approx_mb": 75, "purpose": "Media inspection (duration, codecs, streams) — required by yt-dlp postprocessing" },
-    "fpcalc":  { "approx_mb": 1,  "purpose": "Chromaprint audio fingerprinting for AcoustID song ID" }
+    "fpcalc":  { "approx_mb": 1,  "purpose": "Chromaprint audio fingerprinting for AcoustID song ID" },
+    "whisper": { "approx_mb": 2,  "purpose": "Local speech-to-text engine (whisper.cpp) for AI-generated subtitles" },
+    "whisper-model-tiny": { "approx_mb": 75,  "purpose": "Whisper AI subtitle model — smaller/faster, lower accuracy" },
+    "whisper-model-base": { "approx_mb": 145, "purpose": "Whisper AI subtitle model — larger/slower, better accuracy" }
   },
   "modules": [
     {
@@ -19,6 +23,7 @@
       "name": "Core",
       "description": "Home, Settings, Queue, History, Profiles, Scheduler. Always installed — provides the shared lifecycle, persistence, and proxy/notification infrastructure used by every other module.",
       "required": true,
+      "server": true,
       "binaries": [],
       "tabs": ["home", "queue", "history", "settings"]
     },
@@ -28,7 +33,8 @@
       "description": "Download videos, audio, podcasts, livestreams, radio, RSS feeds and public playlist pages (via yt-dlp). Handles format presets (MP4/MKV/MP3/FLAC/M4A/Opus, 4K→720p), batch queue, retry/resume.",
       "required": false,
       "binaries": ["yt-dlp", "ffmpeg", "ffprobe"],
-      "tabs": ["media", "live", "radio", "rss"]
+      "tabs": ["media", "live", "radio", "rss"],
+      "server": true
     },
     {
       "id": "torrent",
@@ -36,7 +42,8 @@
       "description": "Search YTS, Nyaa, TPB and custom sources. Save .torrent / .magnet files, copy magnet links, or send-to-client (qBittorrent / Transmission WebUI).",
       "required": false,
       "binaries": [],
-      "tabs": ["torrent"]
+      "tabs": ["torrent"],
+      "server": true
     },
     {
       "id": "irc",
@@ -44,7 +51,8 @@
       "description": "IRC client with SASL auth, channel browsing, private messages, and DCC/XDCC file transfers. Supports TLS + SOCKS5 proxy (Tor) for privacy.",
       "required": false,
       "binaries": [],
-      "tabs": ["irc"]
+      "tabs": ["irc"],
+      "server": true
     },
     {
       "id": "nzb",
@@ -52,7 +60,8 @@
       "description": "Forward .nzb files to your SABnzbd or NZBGet server. Pick a local .nzb (or drop one) and FLUX hands it off to the configured Usenet client over its HTTP API — no binaries needed.",
       "required": false,
       "binaries": [],
-      "tabs": ["nzb"]
+      "tabs": ["nzb"],
+      "server": true
     },
     {
       "id": "tag",
@@ -60,7 +69,8 @@
       "description": "Edit ID3v2 / Vorbis / MP4 tags on audio files. Multi-file batch edit, album art import/export, MusicBrainz lookups for auto-tagging.",
       "required": false,
       "binaries": [],
-      "tabs": ["tag"]
+      "tabs": ["tag"],
+      "server": true
     },
     {
       "id": "identify",
@@ -68,7 +78,8 @@
       "description": "Recognise the currently playing song via Shazam (no key) or AcoustID (user-provided key). Microphone capture or file-based identification.",
       "required": false,
       "binaries": ["fpcalc", "ffmpeg", "ffprobe"],
-      "tabs": []
+      "tabs": [],
+      "server": true
     },
     {
       "id": "xtract",
@@ -76,7 +87,8 @@
       "description": "Local media manipulation: trim, convert, extract audio, extract subtitles, split tracks, normalize loudness, frame export, concat, GIF encode. No internet required.",
       "required": false,
       "binaries": ["ffmpeg", "ffprobe"],
-      "tabs": ["xtract"]
+      "tabs": ["xtract"],
+      "server": true
     },
     {
       "id": "images",
@@ -84,7 +96,8 @@
       "description": "Batch image operations: rename, convert (JPG/PNG/WebP/AVIF/HEIC), resize, watermark, EXIF strip, compress to size, deduplicate, FX presets. Includes single-image editor (crop, annotate).",
       "required": false,
       "binaries": [],
-      "tabs": ["images"]
+      "tabs": ["images"],
+      "server": true
     },
     {
       "id": "files",
@@ -92,7 +105,8 @@
       "description": "Copy and sync folders to a device (USB, drive) with incremental / two-way / mirror modes and a FreeFileSync-style preview. Optional audio→MP3 transcode + M3U playlist for the car. Other modules surface one-click 'Sync to…' shortcuts here when enabled.",
       "required": false,
       "binaries": [],
-      "tabs": ["files"]
+      "tabs": ["files"],
+      "server": true
     },
     {
       "id": "video",
@@ -100,7 +114,17 @@
       "description": "Batch operations on a folder of videos — the third editor alongside Tag Editor (audio) and Image Editor (images). Convert format, extract audio, batch rename. Needs ffmpeg + ffprobe for the conversions.",
       "required": false,
       "binaries": ["ffmpeg", "ffprobe"],
-      "tabs": ["video"]
+      "tabs": ["video"],
+      "server": true
+    },
+    {
+      "id": "ai",
+      "name": "AI",
+      "description": "Local AI engine (whisper.cpp) — no dedicated tab, consumed by other modules on demand. Today: AI-generated subtitles from Xtract > Video. Runs fully offline once fetched, no account or cloud service involved.",
+      "required": false,
+      "binaries": ["whisper"],
+      "tabs": [],
+      "server": true
     },
     {
       "id": "remote",
@@ -108,7 +132,8 @@
       "description": "Phone→FLUX companion: send a URL to download, search torrents, or fetch a trailer from your phone via a paired Telegram bot or the local-network mini web server. Pairing via 6-digit code (Telegram) or QR code (LAN). No content ever leaves the desktop unless you explicitly send it (same-source link or Telegram file relay).",
       "required": false,
       "binaries": [],
-      "tabs": ["remote"]
+      "tabs": ["remote"],
+      "server": true
     }
   ]
 }

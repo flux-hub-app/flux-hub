@@ -354,7 +354,7 @@ contributors, and that is squarely the point of an open project.
 | A new IPC method | `main.js` (handler) → `preload.js` (expose) → `renderer.js` (call) |
 | A new tab / section | `renderer/index.html` → `renderer/styles.css` → `renderer.js` |
 | A new module | `modules/registry.json` first (the contract), then wire its tab/handlers |
-| A translation | Copy `renderer/languages/en.json` → translate → add lang to the loader |
+| A translation | Copy the `renderer/languages/en/` folder → translate each category file → add the lang code to `SUPPORTED_LANGS` in `i18n.js` |
 | An icon | Use `data-lucide-icon="name"` (any of the full Lucide set) |
 | The splash | `renderer/splash.html` (self-contained, no preload) |
 | Build / packaging | `package.json → build` (electron-builder) |

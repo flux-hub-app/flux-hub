@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "用 AI 生成",
+  "ai_subs_help": "本地语音转文字（离线，无需账号）—— 转录此文件自身的音频，无需内嵌字幕轨道。首次使用会下载所选模型，仅一次。",
+  "ai_subs_model": "模型",
+  "ai_subs_model_tiny": "Tiny（更快，约 75 MB）",
+  "ai_subs_model_base": "Base（质量更好，约 145 MB）",
+  "ai_subs_generate": "用 AI 生成",
+  "ai_subs_working": "处理中…",
+  "ai_subs_phase_audio": "正在提取音频…",
+  "ai_subs_phase_transcribing": "正在转录…",
+  "ai_subs_phase_done": "完成",
+  "ai_subs_done_title": "字幕已生成",
+  "ai_subs_failed_title": "AI 字幕生成失败",
+  "ai_subs_language": "发语言",
+  "ai_subs_language_auto": "自动检测",
+  "ai_subs_translate_en": "翻译为英语"
+}

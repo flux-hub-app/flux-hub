@@ -1,0 +1,46 @@
+# FLUX headless server (Fase E, 2026-08-23). Quick start:
+#   1. cp .env.example .env  (or export FLUX_ADMIN_PASSWORD yourself)
+#   2. edit FLUX_ADMIN_PASSWORD in .env — required, no default (see Dockerfile)
+#   3. if 8080 is already taken on the host, set FLUX_HOST_PORT in .env too
+#      (only the HOST-side port changes — the container's own internal port
+#      stays 8080 always, it's isolated in its own network namespace, so the
+#      healthcheck below never needs to change)
+#   4. docker compose up -d
+#   5. open http://<host>:${FLUX_HOST_PORT:-8080} — login with the password from .env
+#
+# TrueNAS SCALE (Custom App / "Launch Docker Image"): map this same image,
+# set the two volumes to TrueNAS datasets (so config/history/vendor survive
+# an app restart and downloads land on real storage), set FLUX_ADMIN_PASSWORD
+# in the app's environment variables, expose the container port to a host
+# port of your choice, and point the app's healthcheck at GET /api/health.
+services:
+  flux-server:
+    build: .
+    # Or, once an image is published (see design/flux-patterns.md §10 — a
+    # future flux-server repo builds+publishes this on its own CI):
+    # image: ghcr.io/<owner>/flux-server:latest
+    container_name: flux-server
+    restart: unless-stopped
+    ports:
+      # HOST:CONTAINER — only the host side is configurable (FLUX_HOST_PORT
+      # in .env, defaults to 8080 if unset). The container side stays 8080
+      # unconditionally; changing it would need FLUX_PORT below AND the
+      # healthcheck URL to match, for no real benefit (it's never reachable
+      # from outside the container regardless of what the host maps it to).
+      - "${FLUX_HOST_PORT:-8080}:8080"
+    environment:
+      FLUX_ADMIN_PASSWORD: ${FLUX_ADMIN_PASSWORD:?set FLUX_ADMIN_PASSWORD in .env}
+      FLUX_PORT: 8080
+    volumes:
+      - flux-data:/data
+      - flux-downloads:/downloads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  flux-data:
+  flux-downloads:

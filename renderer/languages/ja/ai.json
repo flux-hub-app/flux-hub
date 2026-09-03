@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "AIで生成",
+  "ai_subs_help": "ローカルの音声認識（オフライン、アカウント不要）— このファイル自体の音声を文字起こしします。埋め込み字幕トラックは不要です。初回利用時のみ、選択したモデルをダウンロードします。",
+  "ai_subs_model": "モデル",
+  "ai_subs_model_tiny": "Tiny（高速、約75MB）",
+  "ai_subs_model_base": "Base（高品質、約145MB）",
+  "ai_subs_generate": "AIで生成",
+  "ai_subs_working": "処理中…",
+  "ai_subs_phase_audio": "音声を抽出中…",
+  "ai_subs_phase_transcribing": "文字起こし中…",
+  "ai_subs_phase_done": "完了",
+  "ai_subs_done_title": "字幕を生成しました",
+  "ai_subs_failed_title": "AI字幕の生成に失敗しました",
+  "ai_subs_language": "話されている言語",
+  "ai_subs_language_auto": "自動検出",
+  "ai_subs_translate_en": "英語に翻訳"
+}

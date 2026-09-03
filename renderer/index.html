@@ -15,7 +15,7 @@
        finishes its initialisation phase (i18n + Lucide + binding all tabs).
        Removed by the JS at the end of DOMContentLoaded. -->
   <div id="splash" class="splash">
-    <div class="splash-logo">FLUX</div>
+    <img class="splash-logo" src="../assets/icon-mark.svg" alt="FLUX" />
     <div class="splash-spinner"></div>
     <div class="splash-msg">Loading…</div>
   </div>
@@ -285,7 +285,40 @@
         </div>
       </div>
       <div id="torrent-log" class="activity-log"></div>
+
+      <!-- Subscriptions — "follow a search", periodic auto-download for
+           titles with no ready-made RSS feed (RSS's own auto-download already
+           covers those). Fires from the scheduler, same as RSS auto-download. -->
+      <hr class="xtract-card-divider" />
+      <div class="subs-header">
+        <h3 class="remote-subtitle" data-i18n="subs_title">Subscriptions</h3>
+        <button type="button" class="btn-icon" id="subs-add-btn" title="Add" data-i18n-title="subs_add" data-lucide-icon="plus"></button>
+      </div>
+      <p class="xtract-card-help" data-i18n="subs_help">Follow a search — FLUX checks it periodically (Settings → Scheduler) and auto-queues new, not-yet-grabbed matches. For titles without a ready-made RSS feed (see RSS's own auto-download for those).</p>
+      <ul class="remote-list" id="subs-list"></ul>
     </section>
+
+    <!-- Subscriptions — add modal. Kept minimal: query + optional preferred
+         keyword (boosts a candidate over higher-seeded ones when it matches
+         the title, e.g. "1080p") + active toggle. No separate edit flow for
+         v1 — delete and re-add covers changing a subscription. -->
+    <div id="subs-add-modal" class="modal hidden" data-dismissible="true">
+      <div class="modal-box">
+        <h3 class="modal-title" data-i18n="subs_modal_title">Add subscription</h3>
+        <div class="field-group">
+          <label class="field-label" data-i18n="subs_query">Search</label>
+          <input type="text" id="subs-query-input" class="search-input plain-input" data-i18n-ph="subs_query_ph" placeholder="e.g. Show Name" />
+        </div>
+        <div class="field-group">
+          <label class="field-label" data-i18n="subs_keyword">Preferred keyword (optional)</label>
+          <input type="text" id="subs-keyword-input" class="search-input plain-input" data-i18n-ph="subs_keyword_ph" placeholder="e.g. 1080p" />
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="subs-add-cancel" data-i18n="rss_cancel">Cancel</button>
+          <button class="btn btn-primary" id="subs-add-confirm" data-i18n="subs_confirm">Add</button>
+        </div>
+      </div>
+    </div>
 
     <!-- NZB / Usenet — single action: pick a local .nzb file and forward it
          to the configured SABnzbd / NZBGet instance. Settings → Integrations
@@ -1558,6 +1591,16 @@
             <label class="field-label" data-i18n="xtract_format">Format</label>
             <select id="xtract-trim-format" class="profile-select"></select>
           </div>
+          <!-- Only shown when source + selected format are both remux-
+               compatible containers (mp4/mkv/webm/mov) — see
+               refreshRemuxToggleVisibility. Unchecked by default so Save
+               keeps forcing a consistent re-encode unless the user opts in. -->
+          <div class="xtract-row trim-remux-row hidden" id="trim-remux-row">
+            <label class="toggle-inline">
+              <input type="checkbox" id="xtract-remux-toggle" />
+              <span data-i18n="xtract_remux_only">Remux only (no re-encode) when the only change is the container</span>
+            </label>
+          </div>
         </div>
 
         <!-- Extract audio — video only. Placed right before Extract subtitles
@@ -1604,6 +1647,38 @@
             <button class="btn btn-ghost"   id="xtract-subs-find-online-btn" data-lucide-icon="search" data-i18n="xtract_subs_find_online" disabled>Find online</button>
           </div>
           <div class="progress-bar-bg hidden" data-progress-for="subs"><div class="progress-bar"></div><span class="progress-bar-text">0%</span></div>
+
+          <hr class="xtract-card-divider" />
+
+          <!-- Local AI (whisper.cpp, fetch-lazy) — no embedded track/internet
+               needed, works on any file's own audio. Shared engine: ai-engine.js. -->
+          <h4 class="xtract-card-subtitle" data-i18n="ai_subs_title">Generate with AI</h4>
+          <p class="xtract-card-help" data-i18n="ai_subs_help">Local speech-to-text (offline, no account) — transcribes this file's own audio, no embedded subtitle track needed. First use downloads the chosen model once.</p>
+          <div class="xtract-row">
+            <label class="img-field">
+              <span class="img-field-label" data-i18n="ai_subs_model">Model</span>
+              <select id="ai-subs-model" class="profile-select">
+                <option value="tiny" data-i18n="ai_subs_model_tiny">Tiny (faster, ~75 MB)</option>
+                <option value="base" data-i18n="ai_subs_model_base">Base (better quality, ~145 MB)</option>
+              </select>
+            </label>
+            <label class="img-field">
+              <span class="img-field-label" data-i18n="ai_subs_language">Spoken language</span>
+              <!-- Options beyond "Auto-detect" are populated in JS from the
+                   same LANG_OPTIONS list the app's own language switcher
+                   uses (native-script labels, no separate translation set). -->
+              <select id="ai-subs-language" class="profile-select">
+                <option value="auto" data-i18n="ai_subs_language_auto">Auto-detect</option>
+              </select>
+            </label>
+          </div>
+          <div class="xtract-row">
+            <label class="field-label" for="ai-subs-translate-en" data-i18n="ai_subs_translate_en">Translate to English</label>
+            <span class="toggle"><input type="checkbox" id="ai-subs-translate-en" /><span class="toggle-track"></span></span>
+            <span class="trim-row-spacer"></span>
+            <button class="btn btn-primary" id="ai-subs-generate-btn" data-lucide-icon="sparkles" data-i18n="ai_subs_generate" disabled>Generate with AI</button>
+          </div>
+          <div class="progress-bar-bg hidden" data-progress-for="subs-ai"><div class="progress-bar"></div><span class="progress-bar-text" data-i18n="ai_subs_working">Working…</span></div>
         </div>
 
         <!-- 5) Frame export — video only -->
@@ -2406,6 +2481,10 @@
             <label class="field-label" data-i18n="settings_rss_poll">RSS poll interval (min)</label>
             <input type="number" id="cfg-rss-poll" class="short-input" min="5" max="1440" />
           </div>
+          <div class="field-group">
+            <label class="field-label" data-i18n="settings_subs_poll">Subscriptions poll interval (min)</label>
+            <input type="number" id="cfg-subs-poll" class="short-input" min="5" max="1440" />
+          </div>
         </div>
       </div>
 
@@ -2932,7 +3011,10 @@
     <!-- Recent downloads tracker modal (global, opened from topbar 📥 button) -->
     <div id="downloads-modal" class="modal hidden" data-dismissible="true">
       <div class="modal-box modal-box-lg">
-        <h3 class="modal-title"><span data-lucide-icon="download-cloud"></span> <span data-i18n="downloads_external">External source downloads</span></h3>
+        <h3 class="modal-title downloads-modal-title">
+          <span data-lucide-icon="download-cloud"></span> <span data-i18n="downloads_external">External source downloads</span>
+          <button class="btn-icon downloads-modal-x" id="downloads-modal-x-btn" data-lucide-icon="x" title="Close" data-i18n-title="rss_close"></button>
+        </h3>
         <div class="modal-body" id="downloads-list">
           <p class="muted" data-i18n="downloads_empty">No downloads yet in this session.</p>
         </div>

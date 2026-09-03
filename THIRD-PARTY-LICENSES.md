@@ -63,6 +63,8 @@ the distributor.
 | ffmpeg (Windows/Linux) | **GPL-3.0** (BtbN full GPL build) | https://github.com/BtbN/FFmpeg-Builds · https://ffmpeg.org |
 | ffmpeg (macOS) | GPL | https://evermeet.cx/ffmpeg/ · https://ffmpeg.org |
 | fpcalc / Chromaprint | LGPL-2.1-or-later | https://acoustid.org/chromaprint |
+| whisper.cpp (CLI build) | MIT | https://github.com/ggml-org/whisper.cpp · community CPU builds via https://github.com/sjoerdteunisse/whisper.cpp |
+| Whisper model weights (ggml) | MIT | https://huggingface.co/ggerganov/whisper.cpp (OpenAI Whisper, MIT) |
 
 > If FLUX Hub is ever changed to bundle the GPL ffmpeg binary inside the installer, it
 > would then be redistributing GPL software and must additionally provide or offer the

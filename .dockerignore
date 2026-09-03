@@ -1,0 +1,10 @@
+# Keep the build context small and avoid leaking dev-only or local state
+# into the image (Fase E, 2026-08-23).
+node_modules
+.git
+.claude
+dist
+vendor
+*.log
+.DS_Store
+Thumbs.db

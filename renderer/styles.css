@@ -273,7 +273,13 @@ body {
    swap the lime counter to the standard "done" green so the user gets a
    final visual confirmation without opening the popup. */
 .topbar-download .download-badge.all-done { background: var(--accent2); }
-.topbar-download.has-downloads { color: var(--accent); }
+/* Was var(--accent) — same lime as the badge (line ~262) and the progress
+   strip (::after below), so a running download read as "lime icon on lime
+   badge/bar", nearly illegible (tasks.md #29). The icon itself only needs to
+   stand out from its default dim/hover state, not compete with the badge —
+   --text (same brightness as :hover) does that while leaving --accent as
+   the sole "something's live" signal on badge + bar. */
+.topbar-download.has-downloads { color: var(--text); }
 /* Aggregate progress strip under the topbar download icon — browser-style
    indicator. Implemented as the button's pseudo-element "bottom border"
    so it's immune to flex/stacking quirks of inner spans. Width driven by
@@ -1164,11 +1170,9 @@ body.dnd-active .dnd-overlay { opacity: 1; }
 }
 .splash.hidden { opacity: 0; pointer-events: none; }
 .splash-logo {
-  font-family: var(--sans);
-  font-size: 64px;
-  font-weight: 800;
-  letter-spacing: 6px;
-  color: var(--accent);
+  width: 48px;
+  height: auto;
+  display: block;
 }
 .splash-spinner {
   width: 38px; height: 38px;
@@ -2262,6 +2266,17 @@ body.img-picking .img-live-canvas { cursor: crosshair; }
   display: flex; align-items: center; justify-content: center;
   color: var(--text-dim); font-size: 12px; pointer-events: none;
   text-align: center; padding: 0 12px;
+}
+
+/* Whole tool panel locked while ensureTrimEditor's WaveSurfer decode (or, for
+   GIFs, the duration probe) is still in flight for a freshly-picked file —
+   same disabled treatment as an inapplicable Xtract card (opacity + no
+   pointer events). Prevents Save/Reset/any tool from racing a trimEditor
+   that hasn't resolved its region/duration yet (tasks.md #28). Lifted the
+   moment loading ends, success or fallback — see setXtractEditorLoading. */
+#av-editor-side.xtract-editor-loading {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 /* Video preview inside the trim editor — shown above the waveform when the
@@ -4551,6 +4566,25 @@ body[data-theme="light"] .queue-fmt-tag { background: rgba(163,122,0,0.10); }
 .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 18px; }
 .muted { color: var(--text-muted); font-size: 13px; }
 
+/* #downloads-modal title bar: adds an X close button (this is the only
+   modal in the app that needs one — the list below can grow long enough
+   that the footer Close button scrolls out of reach, tasks.md #30). Not a
+   generalized ".modal-title" pattern; every other modal here stays
+   footer-buttons-only, same as .modal-box-video's own title-bar button. */
+.downloads-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.downloads-modal-x {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  width: 28px;
+  height: 28px;
+}
+.downloads-modal-x:hover { color: var(--accent); border-color: var(--accent); }
+
 /* Downloads tracker list (inside #downloads-modal) */
 .dl-item {
   display: flex; align-items: center; gap: 12px;
@@ -5618,7 +5652,8 @@ body[data-theme="light"] .module-bin-fetch-btn { color: var(--primary-fg); }
   color: var(--accent, #c8f542);
   align-self: start;
 }
-.module-status-badge.is-required {
+.module-status-badge.is-required,
+.module-status-badge.is-locked {
   border-color: var(--text-dim);
   color: var(--text-dim);
 }

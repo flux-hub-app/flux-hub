@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "Genera con AI",
+  "ai_subs_help": "Trascrizione vocale locale (offline, nessun account) — trascrive l’audio di questo file, non serve una traccia sottotitoli incorporata. Al primo utilizzo scarica il modello scelto, una tantum.",
+  "ai_subs_model": "Modello",
+  "ai_subs_model_tiny": "Tiny (più veloce, ~75 MB)",
+  "ai_subs_model_base": "Base (qualità migliore, ~145 MB)",
+  "ai_subs_generate": "Genera con AI",
+  "ai_subs_working": "In corso…",
+  "ai_subs_phase_audio": "Estrazione audio…",
+  "ai_subs_phase_transcribing": "Trascrizione in corso…",
+  "ai_subs_phase_done": "Fatto",
+  "ai_subs_done_title": "Sottotitoli generati",
+  "ai_subs_failed_title": "Generazione sottotitoli AI fallita",
+  "ai_subs_language": "Lingua parlata",
+  "ai_subs_language_auto": "Rilevamento automatico",
+  "ai_subs_translate_en": "Traduci in inglese"
+}

@@ -216,6 +216,7 @@ let queue          = [];
 let history        = [];
 let rssFeeds       = [];
 let activeFeedIdx  = -1;
+let subscriptions  = []; // Sonarr/Radarr-style "follow a search" — polling logic in engine/autopoll.js
 
 let queueIdCounter = 0;
 const newId = () => ++queueIdCounter;
@@ -315,6 +316,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (!config.tos_accepted || config.tos_version !== TOS_VERSION) showTOS();
 
   rssFeeds = config.rss_feeds || [];
+  subscriptions = config.subscriptions || [];
 
   buildLangDropdown();
   renderSettings();
@@ -324,6 +326,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderHistory();
   bindNav();
   bindTorrent();
+  bindSubscriptions();
   bindMedia();
   bindLive();
   bindRadio();
@@ -426,7 +429,24 @@ window.addEventListener('DOMContentLoaded', async () => {
     const shortLabel = label.length > 40 ? label.substring(0, 37) + '…' : label;
     appendLog('queue-log', `[${shortLabel}] ${line}`, error ? 'error' : 'log');
   });
-  window.api.schedule.onAutoPoll(({ feedUrl, feedName }) => autoPollFeed(feedUrl, feedName));
+  // RSS/subscription auto-poll runs entirely in main now (engine/autopoll.js,
+  // Phase B) — it writes queue.json/config.json directly, so if a window
+  // happens to be open when that happens, its in-memory queue/rssFeeds/
+  // subscriptions would otherwise go stale until the user switches tabs.
+  // A full reload-and-rerender of just the affected lists is simpler and
+  // more robust here than trying to patch partial state.
+  window.api.schedule.onPollComplete(async ({ kind }) => {
+    config = await window.api.config.load();
+    queue  = await window.api.queue.load() || [];
+    renderQueue();
+    if (kind === 'rss') {
+      rssFeeds = config.rss_feeds || [];
+      renderFeedList();
+    } else if (kind === 'subscription') {
+      subscriptions = config.subscriptions || [];
+      renderSubscriptions();
+    }
+  });
   window.api.updater.onAvailable(info => showUpdaterModal('available', info));
   window.api.updater.onDownloaded(info => showUpdaterModal('downloaded', info));
 
@@ -1120,8 +1140,12 @@ function updateXtractClearButton() {
   // Audio/video pipeline pair: Reset always follows "file loaded"; Save is
   // further gated on the pipeline actually having something staged (see
   // updateAvPipelineToolbarState, called from renderXtractPipelinePreview).
+  // Both stay disabled while the waveform/preview for the current file is
+  // still loading (see setXtractEditorLoading / tasks.md #28) — racing a
+  // Save or Reset against a trimEditor that hasn't finished decoding yet
+  // read stale/undefined region-duration state and could misbehave.
   const avReset = document.getElementById('xtract-av-reset-btn');
-  if (avReset) avReset.disabled = !loaded;
+  if (avReset) avReset.disabled = !loaded || xtractEditorLoading;
   if (!loaded) updateAvPipelineToolbarState(false);
 }
 
@@ -1130,7 +1154,31 @@ function updateXtractClearButton() {
 // renderXtractPipelinePreview every time the pipeline state is recomputed.
 function updateAvPipelineToolbarState(dirty) {
   const save = document.getElementById('xtract-av-save-btn');
-  if (save) save.disabled = !xtractInput || !dirty;
+  if (save) save.disabled = !xtractInput || !dirty || xtractEditorLoading;
+}
+
+// Locks the whole AV editor tool panel (+ Save/Reset) while ensureTrimEditor
+// is loading a freshly-picked file — clicking Save (or any tool) against a
+// trimEditor whose waveform/duration hasn't resolved yet raced the decode
+// and could error out (tasks.md #28). Lifted once WaveSurfer's `decode`
+// fires, its `error` handler falls back to ffprobe, the 30s decode timeout
+// kicks in, or (GIFs skip WaveSurfer entirely) once the duration probe
+// resolves — never while `.has-error` is the deliberate "type times
+// manually" fallback state, which must stay fully usable.
+let xtractEditorLoading = false;
+function setXtractEditorLoading(loading) {
+  xtractEditorLoading = loading;
+  document.getElementById('av-editor-side')?.classList.toggle('xtract-editor-loading', loading);
+  if (loading) {
+    const save = document.getElementById('xtract-av-save-btn');
+    if (save) save.disabled = true;
+    updateXtractClearButton(); // re-derives Reset's disabled state too
+  } else if (trimEditor?.ws) {
+    renderXtractPipelinePreview(); // recomputes the real dirty/Save state now unlocked
+  } else {
+    updateAvPipelineToolbarState(false); // GIF / has-error fallback: nothing staged yet
+    updateXtractClearButton();
+  }
 }
 
 // Reads the current staged state of Trim/Concat/Audiotrack/Normalize — same
@@ -1143,6 +1191,11 @@ function collectXtractPipeline() {
   const dur = trimEditor.ws.getDuration() || 0;
   const region = trimEditor.region;
   const { fadeIn, fadeOut } = readFadeParams();
+  const fmt = document.getElementById('xtract-trim-format')?.value || '';
+  const formatChanged = !!fmt && fmt !== xtractInputExt();
+  const mode = xtractAudiotrackMode();
+  const normalizeOn = document.getElementById('xtract-normalize-toggle')?.classList.contains('active');
+  const target = parseFloat(document.getElementById('xtract-normalize-target')?.value);
   let trim = null;
   if (region && dur > 0) {
     const isFullRange = region.start <= 0.01 && region.end >= dur - 0.01;
@@ -1152,11 +1205,25 @@ function collectXtractPipeline() {
         end:   document.getElementById('xtract-trim-end')?.value.trim(),
         fadeIn, fadeOut
       };
+    } else if (formatChanged) {
+      // Pure container/codec change with no real cut or fades — still needs
+      // a pipeline pass, otherwise Save falls through to the "nothing
+      // staged" copy-through and the file never actually gets converted
+      // (see xtract:applyPipeline in main.js). "Remux only" opts into a
+      // stream-copy pass instead of the default forced re-encode, but only
+      // when trim/audiotrack/normalize/concat are ALL genuinely untouched —
+      // if any of those is also staged, the forced re-encode stays (matches
+      // what the checkbox is scoped to: format-only changes).
+      const remuxOnly = !!document.getElementById('xtract-remux-toggle')?.checked
+        && !xtractConcatExtras.length && !mode && !normalizeOn;
+      trim = {
+        start: document.getElementById('xtract-trim-start')?.value.trim(),
+        end:   document.getElementById('xtract-trim-end')?.value.trim(),
+        fadeIn: 0, fadeOut: 0,
+        remuxOnly
+      };
     }
   }
-  const mode = xtractAudiotrackMode();
-  const normalizeOn = document.getElementById('xtract-normalize-toggle')?.classList.contains('active');
-  const target = parseFloat(document.getElementById('xtract-normalize-target')?.value);
   return {
     // Order matters — this is exactly the list order shown/reorderable in
     // the Concat card. Each extra carries its own staged fade-in/trim.
@@ -1255,11 +1322,12 @@ async function confirmAvSave() {
   const progress = document.getElementById('av-save-progress');
   if (progress) {
     progress.classList.remove('hidden');
+    progress.dataset.opId = opId; // xtract.onProgress (bindXtract) matches on this — was missing, so this bar never actually moved
     progress.querySelector('.progress-bar').style.width = '0%';
     progress.querySelector('.progress-bar-text').textContent = '0%';
   }
   appendLog('xtract-log', `Saving pipeline for ${xtractInput.split(/[\\/]/).pop()}…`, 'info');
-  const trackerEntry = addDownloadEntry({ title: xtractInput.split(/[\\/]/).pop(), source: 'xtract · pipeline', status: 'running' });
+  const trackerEntry = addDownloadEntry({ title: xtractInput.split(/[\\/]/).pop(), source: 'xtract · pipeline', status: 'running', opId });
   try {
     const r = await window.api.xtract.applyPipeline({
       input: xtractInput,
@@ -1413,6 +1481,36 @@ function detectMediaKind(filePath) {
   return 'unknown';
 }
 
+// The real extension of the currently loaded Xtract input, lowercased —
+// used to detect a container/format change against the Trim/Convert
+// dropdown (collectXtractPipeline, renderXtractPipelinePreview's dirty
+// check, refreshRemuxToggleVisibility).
+function xtractInputExt() {
+  return xtractInput ? (xtractInput.split(/[\\/]/).pop().split('.').pop() || '').toLowerCase() : '';
+}
+
+// Containers where a codec-only swap can be a lossless stream-copy remux
+// instead of forcing a re-encode — mirrors main.js CONTAINER_REMUX_EXTS /
+// xtract:convert's containerOnly check. Drives the "Remux only" checkbox's
+// visibility in the Trim &/or Convert card (video view only).
+const CONTAINER_REMUX_EXTS = new Set(['mp4', 'mkv', 'webm', 'mov']);
+
+// Shows the "Remux only" checkbox only when it could actually apply: video
+// view, and both the source and the selected output are in the
+// remux-compatible container set. Hides (and force-unchecks, so a stale
+// checked state can't leak into a later, incompatible file/format) otherwise.
+function refreshRemuxToggleVisibility() {
+  const row = document.getElementById('trim-remux-row');
+  if (!row) return;
+  const fmt = document.getElementById('xtract-trim-format')?.value || '';
+  const relevant = xtractCurrentView === 'video' && CONTAINER_REMUX_EXTS.has(xtractInputExt()) && CONTAINER_REMUX_EXTS.has(fmt);
+  row.classList.toggle('hidden', !relevant);
+  if (!relevant) {
+    const cb = document.getElementById('xtract-remux-toggle');
+    if (cb) cb.checked = false;
+  }
+}
+
 // Only ever queried once at boot (bindXtract, below) — a binary fetched
 // LATER from Settings > Modules would otherwise leave this banner stuck on
 // "missing" for the rest of the session even though ffmpeg now works fine
@@ -1440,9 +1538,37 @@ function bindXtract() {
   // Live progress: ffmpeg sends percentages keyed by opId.
   window.api.xtract.onProgress(({ opId, pct }) => {
     const bar = document.querySelector(`.progress-bar-bg[data-op-id="${opId}"]`);
+    if (bar) {
+      bar.querySelector('.progress-bar').style.width = pct + '%';
+      bar.querySelector('.progress-bar-text').textContent = pct + '%';
+    }
+    // Mirror the same percentage onto the topbar downloads tracker entry, if
+    // this opId is one it's tracking (see confirmAvSave/runXtract, which
+    // stamp opId on the entry) — previously only the in-tab progress bar
+    // above ever moved; the topbar list stayed frozen at 0% for the whole
+    // conversion (tasks.md #29). Same in-place-DOM-patch pattern
+    // handleMediaProgress uses for yt-dlp's own percentages.
+    const entry = recentDownloads.find(d => d.opId === opId && d.status === 'running');
+    if (entry) {
+      entry.progress = pct;
+      updateDlEntryProgress(entry.id, pct);
+      renderDownloadsBadge();
+    }
+  });
+
+  // AI transcribe progress: whisper-cli has no clean percentage to parse
+  // (unlike ffmpeg's "time=" stderr), so this only updates the phase label —
+  // the fill itself uses the existing .progress-bar.is-indeterminate sliding
+  // animation (same one Settings > Modules uses during resolve/extract).
+  window.api.ai.onProgress(({ opId, phase }) => {
+    const bar = document.querySelector(`.progress-bar-bg[data-op-id="ai-${opId}"]`);
     if (!bar) return;
-    bar.querySelector('.progress-bar').style.width = pct + '%';
-    bar.querySelector('.progress-bar-text').textContent = pct + '%';
+    const label = {
+      'extracting-audio': t('ai_subs_phase_audio')  || 'Extracting audio…',
+      'transcribing':     t('ai_subs_phase_transcribing') || 'Transcribing…',
+      'done':              t('ai_subs_phase_done')  || 'Done'
+    }[phase] || phase;
+    bar.querySelector('.progress-bar-text').textContent = label;
   });
 
   // Clear button — unloads the current input and tears down both editors so
@@ -1537,8 +1663,13 @@ function bindXtract() {
   // pipeline state, read at Save time — but still need to redraw the
   // composite preview (fades affect the dirty flag) and the GIF options.
   document.getElementById('xtract-trim-format')?.addEventListener('change', () => { refreshFadeControlsVisibility(); scheduleXtractPipelinePreview(); });
+  // Purely a Save-time flag read by collectXtractPipeline — doesn't change
+  // what's "dirty", just how the eventual conversion is encoded.
+  document.getElementById('xtract-remux-toggle')?.addEventListener('change', scheduleXtractPipelinePreview);
   document.getElementById('xtract-subs-btn').addEventListener('click',   () => runXtract('subs',     {}));
   document.getElementById('xtract-subs-find-online-btn').addEventListener('click', () => openSubsSearchModal());
+  document.getElementById('ai-subs-generate-btn')?.addEventListener('click', () => runAiSubsGenerate());
+  populateAiSubsLanguageOptions();
   document.getElementById('xtract-frame-btn').addEventListener('click',  () => runXtract('frame',    {
     at:     document.getElementById('xtract-frame-at').value.trim(),
     format: document.getElementById('xtract-frame-format').value
@@ -1774,6 +1905,7 @@ function refreshFadeControlsVisibility() {
   // input file is gif OR the output format is gif. Fade-row + GIF-row are
   // logically exclusive (gif has no audio to fade), so they never overlap.
   refreshGifOptionsVisibility();
+  refreshRemuxToggleVisibility();
 }
 
 function refreshGifOptionsVisibility() {
@@ -2956,11 +3088,14 @@ function renderXtractPipelinePreview() {
   // from testing Video doesn't affect Audio.
   const mode = xtractCurrentView === 'video' ? xtractAudiotrackMode() : null;
   const normalizeOn = document.getElementById('xtract-normalize-toggle')?.classList.contains('active');
+  const fmt = document.getElementById('xtract-trim-format')?.value || '';
+  const formatChanged = !!fmt && fmt !== xtractInputExt();
   const dirty = xtractConcatExtras.length > 0
     || (region && (region.start > 0.01 || region.end < dur - 0.01))
     || fadeIn > 0 || fadeOut > 0
     || !!mode
-    || !!normalizeOn;
+    || !!normalizeOn
+    || formatChanged;
   updateAvPipelineToolbarState(dirty);
   applyXtractWaveMutation();
 }
@@ -3007,6 +3142,7 @@ async function ensureTrimEditor(filePath) {
   if (!editorEl || !waveEl) return;
   editorEl.classList.remove('hidden');
   waveEl.classList.remove('is-ready');
+  setXtractEditorLoading(true);
 
   // GIF needs a different path entirely: <video> can't render animated GIFs
   // and WaveSurfer can't decode audio that isn't there. Show the file via
@@ -3043,6 +3179,8 @@ async function ensureTrimEditor(filePath) {
       trimEditor = { ws: null, regions: null, region: null, isGif: true, duration: dur };
     } catch (e) {
       appendLog('xtract-log', `✗ ${e.message}`, 'error');
+    } finally {
+      setXtractEditorLoading(false);
     }
     return;
   }
@@ -3070,8 +3208,10 @@ async function ensureTrimEditor(filePath) {
 
   let libs;
   try { libs = await loadTrimEditorLibs(); }
-  catch (e) { appendLog('xtract-log', `✗ Trim editor failed to load: ${e.message}`, 'error'); return; }
-  // The user may have already switched away while WaveSurfer was loading.
+  catch (e) { appendLog('xtract-log', `✗ Trim editor failed to load: ${e.message}`, 'error'); setXtractEditorLoading(false); return; }
+  // The user may have already switched away while WaveSurfer was loading —
+  // a newer ensureTrimEditor call is already in charge of the loading flag
+  // for its own file, so leave it alone here.
   if (trimEditorFile !== filePath) return;
 
   const { WaveSurfer, RegionsPlugin } = libs;
@@ -3126,7 +3266,7 @@ async function ensureTrimEditor(filePath) {
     // The pipeline composite depends on the primary file's peaks (exportPeaks
     // only works once decoded) — repaint now.
     normalizePeaksCache = null; // new decode → stale cache, recompute lazily
-    renderXtractPipelinePreview();
+    setXtractEditorLoading(false); // also triggers the renderXtractPipelinePreview repaint above
   });
 
   // Error + timeout safety net. The waveform "stuck on Loading…" symptom
@@ -3152,6 +3292,7 @@ async function ensureTrimEditor(filePath) {
       appendLog('xtract-log', '⚠ No audio track — waveform unavailable; trim by typing times', 'warn');
       waveEl.classList.add('is-ready');
       waveEl.classList.add('has-error');
+      setXtractEditorLoading(false);
       // Use ffprobe to seed start/end inputs.
       window.api.xtract.probeDuration(filePath).then(r => {
         if (r?.ok && r.duration > 0) {
@@ -3189,6 +3330,7 @@ async function ensureTrimEditor(filePath) {
     showToast({ title: 'Waveform error', body: toastBody, kind: 'warn', ttl: isWebmFormatErr ? 10000 : 7000 });
     waveEl.classList.add('is-ready');
     waveEl.classList.add('has-error');
+    setXtractEditorLoading(false);
   });
   // Timeout for the WaveSurfer decode. Bumped from 6 s to 30 s — a 150 MB
   // video on a spinning disk legitimately takes that long to fetch+decode
@@ -3207,6 +3349,7 @@ async function ensureTrimEditor(filePath) {
     showToast({ title: 'Waveform unavailable', body: 'Decode timed out — use the time inputs below to trim.', kind: 'warn', ttl: 8000 });
     waveEl.classList.add('is-ready');
     waveEl.classList.add('has-error');
+    setXtractEditorLoading(false);
     try {
       const r = await window.api.xtract.probeDuration(filePath);
       if (r?.ok && r.duration > 0) {
@@ -3468,6 +3611,11 @@ function destroyTrimEditor() {
   // about to tear down bails the moment it fires (instead of showing a
   // misleading "decode timed out" toast for a long-since-destroyed mount).
   _trimEditorGen++;
+  // Always release the loading lock here — ensureTrimEditor calls this at
+  // its own start too and immediately re-locks, so there's no flicker; every
+  // OTHER caller (clear file, switch to Image view) tears the editor down
+  // with no load pending, and must not leave the panel stuck disabled.
+  setXtractEditorLoading(false);
   destroyTrimEditorCleanup();
   // ── Hot-swap the video element BEFORE destroying ws ──
   // WaveSurfer v7 with `media: videoEl` holds a reference to the original
@@ -4281,6 +4429,81 @@ async function doSplitRun() {
   }
 }
 
+// Reuses LANG_OPTIONS (the app's own language-switcher list) so the picker
+// doesn't need a separate translated label set — same 10 native-script
+// names FLUX already ships. whisper.cpp uses plain ISO codes (zh, not
+// zh-CN), so that one value is remapped going out, not in the option list.
+function populateAiSubsLanguageOptions() {
+  const sel = document.getElementById('ai-subs-language');
+  if (!sel || sel.dataset.populated) return;
+  sel.dataset.populated = '1';
+  LANG_OPTIONS.filter(o => o.value !== 'system').forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.value === 'zh-CN' ? 'zh' : o.value;
+    opt.textContent = o.label;
+    sel.appendChild(opt);
+  });
+}
+
+let aiSubsOpCounter = 0;
+async function runAiSubsGenerate() {
+  if (!xtractInput) return;
+  const model = document.getElementById('ai-subs-model')?.value === 'base' ? 'base' : 'tiny';
+  const modelBinId = model === 'base' ? 'whisper-model-base' : 'whisper-model-tiny';
+  const language  = document.getElementById('ai-subs-language')?.value || 'auto';
+  const translate = !!document.getElementById('ai-subs-translate-en')?.checked;
+  if (!(await ensureBinaries(['whisper', modelBinId], 'AI'))) return;
+
+  const opId = ++aiSubsOpCounter;
+  const btn = document.getElementById('ai-subs-generate-btn');
+  const bar = document.querySelector('#tab-xtract .progress-bar-bg[data-progress-for="subs-ai"]');
+  const card = bar?.closest('.xtract-card');
+  btn.classList.add('btn-loading'); btn.disabled = true;
+  if (bar) {
+    bar.dataset.opId = `ai-${opId}`;
+    bar.classList.remove('hidden');
+    bar.querySelector('.progress-bar').classList.add('is-indeterminate');
+    bar.querySelector('.progress-bar-text').textContent = t('ai_subs_phase_audio') || 'Extracting audio…';
+  }
+  if (card) card.classList.add('is-running');
+
+  appendLog('xtract-log', `▶ AI subtitles (${model}): ${xtractInput}`, 'info');
+  const trackerEntry = addDownloadEntry({
+    title:  xtractInput.split(/[\\/]/).pop(),
+    source: 'xtract · ai-subs',
+    status: 'running'
+  });
+
+  try {
+    const r = await window.api.ai.transcribe({ input: xtractInput, model, language, translate, opId });
+    if (!r.ok) throw new Error(r.error || 'transcription failed');
+    appendLog('xtract-log', `✓ Saved: ${r.path}`, 'ok');
+    updateDownloadEntry(trackerEntry.id, { status: 'done', path: r.path });
+    showToast({
+      title: t('ai_subs_done_title') || 'Subtitles generated',
+      body:  r.path.split(/[\\/]/).pop(),
+      kind:  'ok',
+      ttl:   6000,
+      actions: [{
+        icon: 'folder-open',
+        title: t('toast_open_folder') || 'Open folder',
+        onClick: (close) => { window.api.shell.openFolder(r.path.replace(/[\\/][^\\/]+$/, '')); close(); }
+      }]
+    });
+  } catch (e) {
+    appendLog('xtract-log', `✗ ${e.message}`, 'error');
+    updateDownloadEntry(trackerEntry.id, { status: 'error', error: e.message });
+    showToast({ title: t('ai_subs_failed_title') || 'AI subtitles failed', body: e.message, kind: 'err', ttl: 6000 });
+  } finally {
+    btn.classList.remove('btn-loading'); btn.disabled = false;
+    if (card) card.classList.remove('is-running');
+    if (bar) {
+      bar.querySelector('.progress-bar').classList.remove('is-indeterminate');
+      setTimeout(() => bar.classList.add('hidden'), 1500);
+    }
+  }
+}
+
 function syncTimeInputsFromRegion(r) {
   if (trimEditorSyncing) return;
   trimEditorSyncing = true;
@@ -4370,7 +4593,8 @@ async function runXtract(op, extra) {
   const trackerEntry = addDownloadEntry({
     title:  xtractInput.split(/[\\/]/).pop(),
     source: 'xtract · ' + op,
-    status: 'running'
+    status: 'running',
+    opId
   });
 
   try {
@@ -5980,7 +6204,7 @@ function bindMedia() {
     // progressing without having to click the 📥 icon themselves. The
     // inline progress bar in the Media tab is gone — progress lives only
     // in the popup now.
-    document.getElementById('downloads-modal').classList.remove('hidden');
+    openDownloadsModal();
     const r = await window.api.media.download({ url, format, downloadFolder: config.download_folder, retry: config.retry_count });
     document.getElementById('media-download-btn').disabled = false;
     document.getElementById('media-stop-btn').classList.add('hidden');
@@ -6802,10 +7026,10 @@ function stopGlobalPlayer(opts = {}) {
 // ─── DOWNLOADS TRACKER (session-scoped, surfaced via topbar 📥 button) ───────
 const recentDownloads = [];
 
-function addDownloadEntry({ title, source, status = 'pending', path = null, kind = null }) {
+function addDownloadEntry({ title, source, status = 'pending', path = null, kind = null, opId = null }) {
   const entry = {
     id: 'dl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-    title, source, status, path, kind,
+    title, source, status, path, kind, opId,
     ts: Date.now()
   };
   recentDownloads.unshift(entry);
@@ -6852,6 +7076,21 @@ function renderDownloadsBadge() {
   }
 }
 
+// The tracker's 'running' status alone can't tell a real yt-dlp/nzb download
+// (source 'media ·'/'live ·') apart from an xtract conversion, a radio
+// recording, an identify lookup, or a playlist search — all share the same
+// addDownloadEntry shape, but only the former are actual downloads. Without
+// this, every one of them showed the generic "Downloading…" label even
+// while nothing was being downloaded (tasks.md #29).
+function downloadStatusLabel(d) {
+  if (d.status !== 'running') return t('downloads_status_' + d.status) || d.status;
+  if (d.source && d.source.startsWith('xtract')) return t('downloads_status_running_xtract')   || 'Converting…';
+  if (d.source === 'radio')                      return t('downloads_status_running_radio')     || 'Recording…';
+  if (d.source === 'identify')                    return t('downloads_status_running_identify')  || 'Identifying…';
+  if (d.source === 'playlist')                     return t('downloads_status_running_playlist') || 'Searching…';
+  return t('downloads_status_running') || 'Downloading…';
+}
+
 function renderDownloadsList() {
   const list = document.getElementById('downloads-list');
   if (!list) return;
@@ -6865,7 +7104,7 @@ function renderDownloadsList() {
     item.className = 'dl-item';
     item.dataset.dlId = d.id;
     const ts = new Date(d.ts).toLocaleTimeString();
-    const statusLabel = t('downloads_status_' + d.status) || d.status;
+    const statusLabel = downloadStatusLabel(d);
     // Once done, the path is redundant with the title (and visually noisy).
     // Keep it for running/error states where the user might want to see
     // where partials live.
@@ -7041,17 +7280,29 @@ function bindImagePreviewModal() {
   });
 }
 
+// Single entry point for showing the modal — renders the list fresh and
+// resets its scroll to the top. New entries are unshifted in (addDownloadEntry),
+// so if the popup was left scrolled down, reopening it used to show the
+// OLDEST entries first instead of the most recent ones (tasks.md #30).
+function openDownloadsModal() {
+  const modal = document.getElementById('downloads-modal');
+  if (!modal) return;
+  renderDownloadsList();
+  modal.classList.remove('hidden');
+  const list = document.getElementById('downloads-list');
+  if (list) list.scrollTop = 0;
+}
+
 function bindDownloadsModal() {
   const open  = document.getElementById('topbar-download-btn');
   const close = document.getElementById('downloads-close-btn');
+  const closeX = document.getElementById('downloads-modal-x-btn');
   const clear = document.getElementById('downloads-clear-btn');
   const modal = document.getElementById('downloads-modal');
   if (!open || !close || !modal) return;
-  open.addEventListener('click', () => {
-    renderDownloadsList();
-    modal.classList.remove('hidden');
-  });
+  open.addEventListener('click', openDownloadsModal);
   close.addEventListener('click', () => modal.classList.add('hidden'));
+  closeX?.addEventListener('click', () => modal.classList.add('hidden'));
   clear.addEventListener('click', () => {
     recentDownloads.length = 0;
     renderDownloadsBadge();
@@ -11773,39 +12024,83 @@ function queueRSSItem(item) {
   renderQueue();
 }
 
-// ─── RSS AUTO-POLL (scheduler-driven) ────────────────────────────────────────
-async function autoPollFeed(feedUrl, feedName) {
-  const feedIdx = rssFeeds.findIndex(f => f.url === feedUrl);
-  if (feedIdx < 0) return;
-  const feed = rssFeeds[feedIdx];
+// ─── RSS / SUBSCRIPTIONS AUTO-POLL ────────────────────────────────────────────
+// The actual polling (fetch → dedup → auto-queue → notify) runs entirely in
+// main now — engine/autopoll.js, Phase B (2026-08-19) — so it works with no
+// window open. This file only renders the lists below; see
+// window.api.schedule.onPollComplete's registration (near the other
+// window.api.*.on* listeners) for how the UI picks up changes main made.
 
-  const r = await window.api.rss.fetch(feedUrl);
-  if (!r.ok) return;
+function renderSubscriptions() {
+  const list = document.getElementById('subs-list');
+  if (!list) return;
+  if (!subscriptions.length) {
+    list.innerHTML = `<li class="remote-list-empty">${esc(t('subs_empty') || 'No subscriptions yet')}</li>`;
+    return;
+  }
+  list.innerHTML = subscriptions.map(s => {
+    const checked = s.enabled ? 'checked' : '';
+    const lastChecked = relativeTime(s.last_checked);
+    return `<li class="remote-list-item" data-sub-id="${esc(s.id)}">
+      <span>
+        <strong>${esc(s.query)}</strong>${s.keyword ? ` <span class="remote-list-item-meta">(${esc(s.keyword)})</span>` : ''}
+        <span class="remote-list-item-meta"> — ${esc(lastChecked)}</span>
+      </span>
+      <span style="display:flex;align-items:center;gap:10px">
+        <label class="toggle"><input type="checkbox" class="subs-enabled-toggle" ${checked} /><span class="toggle-track"></span></label>
+        <button type="button" class="btn-icon btn-icon-danger subs-delete-btn" data-lucide-icon="trash" title="${esc(t('subs_delete') || 'Delete')}"></button>
+      </span>
+    </li>`;
+  }).join('');
+  applyLucideIcons(list);
+}
 
-  const knownGuids = new Set(feed.last_guids || []);
-  const newItems = r.items.filter(it => {
-    const id = it.guid || it.link || it.title;
-    return id && !knownGuids.has(id);
+function bindSubscriptions() {
+  const list        = document.getElementById('subs-list');
+  const addBtn      = document.getElementById('subs-add-btn');
+  const modal       = document.getElementById('subs-add-modal');
+  const queryInput  = document.getElementById('subs-query-input');
+  const keywordInput = document.getElementById('subs-keyword-input');
+  if (!list || !addBtn) return;
+
+  addBtn.addEventListener('click', () => {
+    queryInput.value = '';
+    keywordInput.value = '';
+    modal.classList.remove('hidden');
+    queryInput.focus();
+  });
+  document.getElementById('subs-add-cancel')?.addEventListener('click', () => modal.classList.add('hidden'));
+  document.getElementById('subs-add-confirm')?.addEventListener('click', () => {
+    const query = queryInput.value.trim();
+    if (!query) return;
+    subscriptions.push({ id: newId(), query, keyword: keywordInput.value.trim(), enabled: true, last_checked: null, grabbed_ids: [] });
+    config.subscriptions = subscriptions;
+    window.api.config.save(config);
+    renderSubscriptions();
+    modal.classList.add('hidden');
   });
 
-  for (const item of newItems) {
-    const type = getRSSItemType(item);
-    if (type === 'audio' || type === 'video') {
-      queueRSSMedia(item, type);
-    } else if (type === 'torrent') {
-      queueRSSItem(item);
-    }
-  }
+  list.addEventListener('click', (e) => {
+    if (!e.target.closest('.subs-delete-btn')) return;
+    const li = e.target.closest('[data-sub-id]');
+    const idx = subscriptions.findIndex(s => String(s.id) === li?.dataset.subId);
+    if (idx < 0) return;
+    subscriptions.splice(idx, 1);
+    config.subscriptions = subscriptions;
+    window.api.config.save(config);
+    renderSubscriptions();
+  });
+  list.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('subs-enabled-toggle')) return;
+    const li = e.target.closest('[data-sub-id]');
+    const idx = subscriptions.findIndex(s => String(s.id) === li?.dataset.subId);
+    if (idx < 0) return;
+    subscriptions[idx].enabled = e.target.checked;
+    config.subscriptions = subscriptions;
+    window.api.config.save(config);
+  });
 
-  // Update last_guids with the latest 100 ids
-  feed.last_guids   = r.items.slice(0, 100).map(it => it.guid || it.link || it.title).filter(Boolean);
-  feed.last_fetched = new Date().toISOString();
-  config.rss_feeds  = rssFeeds;
-  await window.api.config.save(config);
-
-  if (newItems.length && config.notify_on_done) {
-    window.api.notify.show({ title: `FLUX — ${feedName}`, body: `${newItems.length} new item(s) added to queue` });
-  }
+  renderSubscriptions();
 }
 
 // ─── NZB TAB ─────────────────────────────────────────────────────────────────
@@ -13178,6 +13473,7 @@ function renderSettings() {
   document.getElementById('cfg-window-start').value       = schedule.window_start || '02:00';
   document.getElementById('cfg-window-end').value         = schedule.window_end   || '06:00';
   document.getElementById('cfg-rss-poll').value           = schedule.rss_poll_min || 60;
+  document.getElementById('cfg-subs-poll').value          = schedule.subs_poll_min || 60;
 
   if (config.lang) {
     const hidden = document.getElementById('cfg-lang');
@@ -13562,6 +13858,14 @@ async function renderModulesList() {
   ]);
   const binMeta = reg.binaries || {};
   const enabledMap = config.modules_enabled || {};
+  // Only present when window.api is backed by server.js (see api-http.js) —
+  // undefined on desktop, so this whole branch never triggers there. A
+  // module missing from this list has no REST implementation at all behind
+  // it (see engine/*.js / server.js's route table): even if modules_enabled
+  // were hand-edited to true, api-http.js's stub for that namespace still
+  // can't reach anything real, so the toggle here is UI-level honesty about
+  // an already-true code-level restriction, not the restriction itself.
+  const serverModuleIds = reg.serverModuleIds || null;
   for (const m of reg.modules || []) {
     const card = document.createElement('div');
     card.className = 'module-card';
@@ -13585,10 +13889,16 @@ async function renderModulesList() {
     const fetchAllBtn = missingBins.length
       ? `<button class="module-bin-fetch-all-btn" type="button" data-module-id="${esc(m.id)}" title="${esc(t('settings_modules_fetch_all_help') || 'Download all dependencies this module needs')}"><span data-lucide-icon="download-cloud" data-lucide-size="12"></span><span class="mbf-all-label">${esc(t('settings_modules_fetch_all') || 'Get dependencies')}</span></button>`
       : '';
-    // Required modules (core) render as a static badge — no toggle. All
-    // others render as the standard toggle switch.
+    // Required modules (core) render as a static badge — no toggle. A
+    // module absent from serverModuleIds (server deployment only) is
+    // ALSO a static badge — locked, not just unchecked, since there is no
+    // working backend behind it here no matter what the toggle says.
+    // Everything else renders as the standard toggle switch.
+    const isServerLocked = serverModuleIds && !m.required && !serverModuleIds.includes(m.id);
     const control = m.required
       ? `<span class="module-status-badge is-required">${esc(t('settings_modules_status_required') || 'Required')}</span>`
+      : isServerLocked
+      ? `<span class="module-status-badge is-locked" title="${esc(t('settings_modules_desktop_only_help') || 'This module needs local system access (native dialogs, file conversion tools, etc.) this server deployment does not have — it only works in the FLUX desktop app.')}">${esc(t('settings_modules_desktop_only') || 'Desktop app only')}</span>`
       : `<label class="toggle module-toggle" title="${esc(t('settings_modules_toggle_help') || 'Enable or disable this module')}">
            <input type="checkbox" class="module-enabled-input" data-module-id="${esc(m.id)}" ${enabledMap[m.id] !== false ? 'checked' : ''} />
            <span class="toggle-track"></span>
@@ -13805,6 +14115,7 @@ function readSettingsFromUI() {
   schedule.window_start  = document.getElementById('cfg-window-start').value || '02:00';
   schedule.window_end    = document.getElementById('cfg-window-end').value   || '06:00';
   schedule.rss_poll_min  = parseInt(document.getElementById('cfg-rss-poll').value) || 60;
+  schedule.subs_poll_min = parseInt(document.getElementById('cfg-subs-poll').value) || 60;
 }
 
 // Torznab service detection cache, pre-warmed at startup (see DOMContentLoaded)

@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "Mit KI erzeugen",
+  "ai_subs_help": "Lokale Sprache-zu-Text-Umwandlung (offline, kein Konto) — transkribiert die Audiospur dieser Datei, keine eingebettete Untertitelspur nötig. Beim ersten Einsatz wird das gewählte Modell einmalig heruntergeladen.",
+  "ai_subs_model": "Modell",
+  "ai_subs_model_tiny": "Tiny (schneller, ~75 MB)",
+  "ai_subs_model_base": "Base (bessere Qualität, ~145 MB)",
+  "ai_subs_generate": "Mit KI erzeugen",
+  "ai_subs_working": "Läuft…",
+  "ai_subs_phase_audio": "Audio wird extrahiert…",
+  "ai_subs_phase_transcribing": "Transkription läuft…",
+  "ai_subs_phase_done": "Fertig",
+  "ai_subs_done_title": "Untertitel erzeugt",
+  "ai_subs_failed_title": "KI-Untertitel fehlgeschlagen",
+  "ai_subs_language": "Gesprochene Sprache",
+  "ai_subs_language_auto": "Automatisch erkennen",
+  "ai_subs_translate_en": "Ins Englische übersetzen"
+}

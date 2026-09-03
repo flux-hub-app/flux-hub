@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "Gerar com IA",
+  "ai_subs_help": "Voz para texto local (offline, sem conta) — transcreve o áudio deste ficheiro, sem necessidade de uma faixa de legendas incorporada. A primeira utilização descarrega o modelo escolhido uma única vez.",
+  "ai_subs_model": "Modelo",
+  "ai_subs_model_tiny": "Tiny (mais rápido, ~75 MB)",
+  "ai_subs_model_base": "Base (melhor qualidade, ~145 MB)",
+  "ai_subs_generate": "Gerar com IA",
+  "ai_subs_working": "A processar…",
+  "ai_subs_phase_audio": "A extrair áudio…",
+  "ai_subs_phase_transcribing": "A transcrever…",
+  "ai_subs_phase_done": "Concluído",
+  "ai_subs_done_title": "Legendas geradas",
+  "ai_subs_failed_title": "Falha ao gerar legendas com IA",
+  "ai_subs_language": "Idioma falado",
+  "ai_subs_language_auto": "Deteção automática",
+  "ai_subs_translate_en": "Traduzir para inglês"
+}

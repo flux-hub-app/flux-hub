@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "Générer avec l’IA",
+  "ai_subs_help": "Transcription vocale locale (hors ligne, sans compte) — transcrit l’audio propre de ce fichier, aucune piste de sous-titres intégrée requise. La première utilisation télécharge le modèle choisi une seule fois.",
+  "ai_subs_model": "Modèle",
+  "ai_subs_model_tiny": "Tiny (plus rapide, ~75 Mo)",
+  "ai_subs_model_base": "Base (meilleure qualité, ~145 Mo)",
+  "ai_subs_generate": "Générer avec l’IA",
+  "ai_subs_working": "En cours…",
+  "ai_subs_phase_audio": "Extraction audio…",
+  "ai_subs_phase_transcribing": "Transcription en cours…",
+  "ai_subs_phase_done": "Terminé",
+  "ai_subs_done_title": "Sous-titres générés",
+  "ai_subs_failed_title": "Échec de la génération des sous-titres IA",
+  "ai_subs_language": "Langue parlée",
+  "ai_subs_language_auto": "Détection automatique",
+  "ai_subs_translate_en": "Traduire en anglais"
+}

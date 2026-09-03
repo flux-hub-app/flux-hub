@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "Generuj z AI",
+  "ai_subs_help": "Lokalne rozpoznawanie mowy (offline, bez konta) — transkrybuje własne audio tego pliku, nie potrzeba wbudowanej ścieżki napisów. Przy pierwszym użyciu pobiera wybrany model jednorazowo.",
+  "ai_subs_model": "Model",
+  "ai_subs_model_tiny": "Tiny (szybszy, ~75 MB)",
+  "ai_subs_model_base": "Base (lepsza jakość, ~145 MB)",
+  "ai_subs_generate": "Generuj z AI",
+  "ai_subs_working": "W toku…",
+  "ai_subs_phase_audio": "Wyodrębnianie audio…",
+  "ai_subs_phase_transcribing": "Transkrypcja w toku…",
+  "ai_subs_phase_done": "Gotowe",
+  "ai_subs_done_title": "Napisy wygenerowane",
+  "ai_subs_failed_title": "Generowanie napisów AI nie powiodło się",
+  "ai_subs_language": "Język mówiony",
+  "ai_subs_language_auto": "Wykrywanie automatyczne",
+  "ai_subs_translate_en": "Przetłumacz na angielski"
+}

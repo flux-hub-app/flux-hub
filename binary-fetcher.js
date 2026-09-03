@@ -19,6 +19,12 @@
  *               evermeet.cx (macOS, separate zips, universal x64+arm64)
  *   - ffprobe : same archive as ffmpeg — fetching either yields both
  *   - fpcalc  : acoustid/chromaprint releases (latest)
+ *   - whisper : sjoerdteunisse/whisper.cpp releases (community CPU-only CLI
+ *               builds — the official ggml-org/whisper.cpp releases don't
+ *               publish a plain macOS CLI executable, only an XCFramework)
+ *   - whisper-model-tiny / whisper-model-base : ggml model weights, direct
+ *               single-file download from huggingface.co/ggerganov/whisper.cpp
+ *               (no archive, no extraction) — user picks one in the Xtract UI
  *
  * Extraction uses OS tools that exist on every supported platform inside a
  * packaged app: PowerShell Expand-Archive / unzip for .zip, and the
@@ -47,10 +53,25 @@ const YTDLP_RELEASES = 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/late
 const CHROMA_RELEASES = 'https://api.github.com/repos/acoustid/chromaprint/releases/latest';
 const BTBN_LATEST  = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest';
 const EVERMEET_API = 'https://evermeet.cx/ffmpeg/info';
+const WHISPER_RELEASES = 'https://api.github.com/repos/sjoerdteunisse/whisper.cpp/releases/latest';
+const WHISPER_MODEL_BASE_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
 const YTDLP_ASSET = { win32: 'yt-dlp.exe', darwin: 'yt-dlp_macos', linux: 'yt-dlp' };
 const CHROMA_PLATFORM = { win32: 'windows', darwin: 'macos', linux: 'linux' };
 const CHROMA_ARCH     = { x64: 'x86_64', arm64: 'arm64' };
+// CPU-only asset per platform:arch — this source doesn't publish linux-arm64,
+// so that combo falls through to the "unsupported" error in fetchWhisper().
+const WHISPER_ASSET = {
+  'win32:x64':    'whisper-cpp-win32-x64-cpu.zip',
+  'darwin:x64':   'whisper-cpp-darwin-x64.zip',
+  'darwin:arm64': 'whisper-cpp-darwin-arm64.zip',
+  'linux:x64':    'whisper-cpp-linux-x64-cpu.zip'
+};
+// ggml model filename on Hugging Face, keyed by our internal binary id.
+const WHISPER_MODEL_FILE = {
+  'whisper-model-tiny': 'ggml-tiny.bin',
+  'whisper-model-base': 'ggml-base.bin'
+};
 
 // On-disk filename for a given binary id on a given platform.
 function binFilename(id, platform) {
@@ -60,6 +81,9 @@ function binFilename(id, platform) {
     case 'ffmpeg':  return exe ? 'ffmpeg.exe'  : 'ffmpeg';
     case 'ffprobe': return exe ? 'ffprobe.exe' : 'ffprobe';
     case 'fpcalc':  return exe ? 'fpcalc.exe'  : 'fpcalc';
+    case 'whisper': return exe ? 'whisper-cli.exe' : 'whisper-cli';
+    case 'whisper-model-tiny': return 'whisper-model-tiny.bin';
+    case 'whisper-model-base': return 'whisper-model-base.bin';
     default: return id + (exe ? '.exe' : '');
   }
 }
@@ -336,16 +360,63 @@ async function fetchFpcalc(ctx) {
   return ['fpcalc'];
 }
 
+async function fetchWhisper(ctx) {
+  const { platform, arch, vendorDir, tmpDir, emit } = ctx;
+  const assetName = WHISPER_ASSET[`${platform}:${arch}`];
+  if (!assetName) throw new Error(`whisper: unsupported platform/arch ${platform}/${arch}`);
+  emit({ phase: 'resolving' });
+  const release = await fetchJSON(WHISPER_RELEASES);
+  const asset = (release.assets || []).find(a => a.name === assetName);
+  if (!asset) throw new Error(`whisper asset "${assetName}" not found in ${release.tag_name}`);
+  const archivePath = path.join(tmpDir, assetName);
+  emit({ phase: 'downloading', pct: 0 });
+  await downloadFile(asset.browser_download_url, archivePath, (pct, rec, tot) => emit({ phase: 'downloading', pct, received: rec, total: tot }));
+  emit({ phase: 'extracting' });
+  extractArchive(archivePath, tmpDir);
+  // This source names the executable after the release asset itself (e.g.
+  // "whisper-cpp-win32-x64-cpu.exe"), not the upstream whisper.cpp convention
+  // ("whisper-cli"/pre-rename "main") — try all three since either could
+  // change if the build source or upstream naming shifts.
+  const exe = platform === 'win32' ? '.exe' : '';
+  const candidates = [
+    binFilename('whisper', platform),
+    `${assetName.replace(/\.zip$/, '')}${exe}`,
+    `main${exe}`
+  ];
+  let src = null;
+  for (const name of candidates) { src = findFile(tmpDir, name); if (src) break; }
+  if (!src) throw new Error(`whisper CLI executable not found in ${assetName} (tried: ${candidates.join(', ')}) — archive layout may have changed`);
+  const dest = path.join(vendorDir, binFilename('whisper', platform));
+  fs.copyFileSync(src, dest);
+  chmodX(dest);
+  return ['whisper'];
+}
+
+async function fetchWhisperModel(modelId, ctx) {
+  const { platform, vendorDir, tmpDir, emit } = ctx;
+  const filename = WHISPER_MODEL_FILE[modelId];
+  if (!filename) throw new Error(`Unknown whisper model: ${modelId}`);
+  emit({ phase: 'downloading', pct: 0 });
+  const dest = path.join(vendorDir, binFilename(modelId, platform));
+  const tmp  = path.join(tmpDir, filename);
+  await downloadFile(`${WHISPER_MODEL_BASE_URL}/${filename}`, tmp, (pct, rec, tot) => emit({ phase: 'downloading', pct, received: rec, total: tot }));
+  fs.copyFileSync(tmp, dest);
+  return [modelId];
+}
+
 const FETCHERS = {
   'yt-dlp':  fetchYtDlp,
   'ffmpeg':  fetchFfmpeg,
   'ffprobe': fetchFfmpeg,   // same archive yields both
   'fpcalc':  fetchFpcalc,
+  'whisper': fetchWhisper,
+  'whisper-model-tiny': ctx => fetchWhisperModel('whisper-model-tiny', ctx),
+  'whisper-model-base': ctx => fetchWhisperModel('whisper-model-base', ctx),
 };
 
 /**
  * Fetch a binary by id into vendorDir.
- * @param {string} id  one of yt-dlp | ffmpeg | ffprobe | fpcalc
+ * @param {string} id  one of yt-dlp | ffmpeg | ffprobe | fpcalc | whisper | whisper-model-tiny | whisper-model-base
  * @param {{ vendorDir:string, platform?:string, arch?:string, onProgress?:(p)=>void }} opts
  * @returns {Promise<{ok:boolean, fetched?:string[], error?:string}>}
  *   `fetched` lists every binary id now present as a result (ffmpeg → both).

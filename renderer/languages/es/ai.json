@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "Generar con IA",
+  "ai_subs_help": "Voz a texto local (sin conexión, sin cuenta) — transcribe el audio propio de este archivo, no hace falta una pista de subtítulos incrustada. El primer uso descarga el modelo elegido una sola vez.",
+  "ai_subs_model": "Modelo",
+  "ai_subs_model_tiny": "Tiny (más rápido, ~75 MB)",
+  "ai_subs_model_base": "Base (mejor calidad, ~145 MB)",
+  "ai_subs_generate": "Generar con IA",
+  "ai_subs_working": "En proceso…",
+  "ai_subs_phase_audio": "Extrayendo audio…",
+  "ai_subs_phase_transcribing": "Transcribiendo…",
+  "ai_subs_phase_done": "Listo",
+  "ai_subs_done_title": "Subtítulos generados",
+  "ai_subs_failed_title": "Falló la generación de subtítulos con IA",
+  "ai_subs_language": "Idioma hablado",
+  "ai_subs_language_auto": "Detección automática",
+  "ai_subs_translate_en": "Traducir al inglés"
+}

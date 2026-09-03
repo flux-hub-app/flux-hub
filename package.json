@@ -10,6 +10,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "start:server": "node server.js",
     "fetch-ytdlp": "node scripts/fetch-ytdlp.js",
     "fetch-ffmpeg": "node scripts/fetch-ffmpeg.js",
     "build-icons": "node scripts/build-icons.js",

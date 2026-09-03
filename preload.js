@@ -29,9 +29,13 @@ contextBridge.exposeInMainWorld('api', {
     onProgress:      cb    => ipcRenderer.on('binary:progress', (_, d) => cb(d))
   },
   profiles: {
+    // Single-object payload (not positional args) so main.js's IPC handler
+    // matches the generic wireIpc(...) shape shared with the REST side (see
+    // engine/profiles.js's routes[] + engine/wire-ipc.js) — window.api's
+    // own signature (name, cfg) is unchanged, only the wire format is.
     load:   ()          => ipcRenderer.invoke('profiles:load'),
-    save:   (name, cfg) => ipcRenderer.invoke('profiles:save', name, cfg),
-    delete: name        => ipcRenderer.invoke('profiles:delete', name)
+    save:   (name, cfg) => ipcRenderer.invoke('profiles:save', { name, config: cfg }),
+    delete: name        => ipcRenderer.invoke('profiles:delete', { name })
   },
   flux: {
     export: (cfg, mode) => ipcRenderer.invoke('flux:export', cfg, mode),
@@ -54,7 +58,7 @@ contextBridge.exposeInMainWorld('api', {
     // Cross-app drops (e.g. an image dragged out of a browser) have no disk
     // path — persist the File's bytes / download the source URL instead.
     saveDroppedBuffer: payload => ipcRenderer.invoke('file:saveDroppedBuffer', payload),
-    importUrl:         url     => ipcRenderer.invoke('file:importUrl', url)
+    importUrl:         url     => ipcRenderer.invoke('file:importUrl', { url })
   },
   shell: {
     openFolder:      p => ipcRenderer.invoke('shell:openFolder',     p),
@@ -152,7 +156,10 @@ contextBridge.exposeInMainWorld('api', {
   schedule: {
     load: ()  => ipcRenderer.invoke('schedule:load'),
     save: s   => ipcRenderer.invoke('schedule:save', s),
-    onAutoPoll: cb => ipcRenderer.on('scheduler:autoPoll', (_, d) => cb(d))
+    // Auto-poll (RSS + subscriptions) now runs entirely in main (engine/
+    // autopoll.js, Phase B) — the renderer no longer does the fetch/queue
+    // work itself, it just refreshes its lists when told something changed.
+    onPollComplete: cb => ipcRenderer.on('scheduler:pollComplete', (_, d) => cb(d))
   },
   queue: {
     load:       ()       => ipcRenderer.invoke('queue:load'),
@@ -160,7 +167,7 @@ contextBridge.exposeInMainWorld('api', {
     clear:      ()       => ipcRenderer.invoke('queue:clear'),
     run:        (q, cfg) => ipcRenderer.invoke('queue:run', { queue: q, config: cfg }),
     importList: (text)   => ipcRenderer.invoke('queue:importList', text),
-    checkUrl:   url      => ipcRenderer.invoke('queue:checkUrl', url),
+    checkUrl:   url      => ipcRenderer.invoke('queue:checkUrl', { url }),
     onItemStart: cb => ipcRenderer.on('queue:itemStart', (_, d) => cb(d)),
     onItemDone:  cb => ipcRenderer.on('queue:itemDone',  (_, d) => cb(d)),
     onProgress:  cb => ipcRenderer.on('queue:progress',  (_, d) => cb(d))
@@ -190,8 +197,10 @@ contextBridge.exposeInMainWorld('api', {
     onProgress: cb      => ipcRenderer.on('live:progress', (_, d) => cb(d))
     // probe reuses media.probe; stop reuses media.stop
   },
+  // Object payloads (not bare positionals) so main.js's IPC handler matches
+  // wireIpc's generic shape — window.api's own signatures below are unchanged.
   tag: {
-    read:    filePath => ipcRenderer.invoke('tag:read', filePath),
+    read:    filePath => ipcRenderer.invoke('tag:read', { filePath }),
     write:   payload  => ipcRenderer.invoke('tag:write', payload),
     autoTag: payload  => ipcRenderer.invoke('tag:autoTag', payload)
   },
@@ -199,13 +208,13 @@ contextBridge.exposeInMainWorld('api', {
     search: q => ipcRenderer.invoke('mb:search', q)
   },
   cover: {
-    fetch: mbid => ipcRenderer.invoke('cover:fetch', mbid)
+    fetch: mbid => ipcRenderer.invoke('cover:fetch', { mbid })
   },
   lrc: {
     fetch:  q       => ipcRenderer.invoke('lrc:fetch', q),
     save:   payload => ipcRenderer.invoke('lrc:save', payload),
-    exists: path    => ipcRenderer.invoke('lrc:exists', path),
-    read:   path    => ipcRenderer.invoke('lrc:read', path)
+    exists: path    => ipcRenderer.invoke('lrc:exists', { audioPath: path }),
+    read:   path    => ipcRenderer.invoke('lrc:read', { audioPath: path })
   },
   radio: {
     search:        params       => ipcRenderer.invoke('radio:search', params),
@@ -213,7 +222,7 @@ contextBridge.exposeInMainWorld('api', {
     tags:          ()           => ipcRenderer.invoke('radio:tags'),
     languages:     ()           => ipcRenderer.invoke('radio:languages'),
     startIcyWatch: payload      => ipcRenderer.invoke('radio:startIcyWatch', payload),
-    stopIcyWatch:  uuid         => ipcRenderer.invoke('radio:stopIcyWatch', uuid),
+    stopIcyWatch:  uuid         => ipcRenderer.invoke('radio:stopIcyWatch', { uuid }),
     onIcyMeta:     cb           => ipcRenderer.on('radio:icyMeta', (_, d) => cb(d))
   },
   acoustid: {
@@ -253,6 +262,10 @@ contextBridge.exposeInMainWorld('api', {
     applyPipeline: payload  => ipcRenderer.invoke('xtract:applyPipeline', payload),
     onProgress:  cb         => ipcRenderer.on('xtract:progress', (_, d) => cb(d))
   },
+  ai: {
+    transcribe:  payload    => ipcRenderer.invoke('ai:transcribe', payload),
+    onProgress:  cb         => ipcRenderer.on('ai:progress', (_, d) => cb(d))
+  },
   system: {
     platform:         process.platform,                    // 'win32' | 'darwin' | 'linux' — used by renderer to apply OS-specific styling (e.g. left padding on macOS for traffic-light avoidance)
     getLocale:        ()        => ipcRenderer.invoke('app:getLocale'),
@@ -268,8 +281,10 @@ contextBridge.exposeInMainWorld('api', {
     onSplashAudioPref: cb       => ipcRenderer.on('config:splashAudioPref', (_, v) => cb(v))
   },
   rss: {
-    fetch:    url => ipcRenderer.invoke('rss:fetch', url),
-    discover: url => ipcRenderer.invoke('rss:discover', url)
+    // Object payload, not a bare string — matches wireIpc's generic shape
+    // (see engine/rss.js's routes[]). window.api.rss.fetch(url) is unchanged.
+    fetch:    url => ipcRenderer.invoke('rss:fetch', { url }),
+    discover: url => ipcRenderer.invoke('rss:discover', { url })
   },
   capture: {
     listSources:    opts    => ipcRenderer.invoke('capture:listSources', opts || {}),

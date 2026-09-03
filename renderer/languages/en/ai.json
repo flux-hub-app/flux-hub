@@ -1,0 +1,17 @@
+{
+  "ai_subs_title": "Generate with AI",
+  "ai_subs_help": "Local speech-to-text (offline, no account) — transcribes this file’s own audio, no embedded subtitle track needed. First use downloads the chosen model once.",
+  "ai_subs_model": "Model",
+  "ai_subs_model_tiny": "Tiny (faster, ~75 MB)",
+  "ai_subs_model_base": "Base (better quality, ~145 MB)",
+  "ai_subs_generate": "Generate with AI",
+  "ai_subs_working": "Working…",
+  "ai_subs_phase_audio": "Extracting audio…",
+  "ai_subs_phase_transcribing": "Transcribing…",
+  "ai_subs_phase_done": "Done",
+  "ai_subs_done_title": "Subtitles generated",
+  "ai_subs_failed_title": "AI subtitles failed",
+  "ai_subs_language": "Spoken language",
+  "ai_subs_language_auto": "Auto-detect",
+  "ai_subs_translate_en": "Translate to English"
+}
