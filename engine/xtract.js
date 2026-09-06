@@ -722,7 +722,18 @@ async function xtractApplyPipeline(event, payload) {
       // rather than error, so a stray click still produces something sane.
       fs.copyFileSync(current, finalPath);
     } else {
-      fs.renameSync(current, finalPath);
+      // `current` lives in os.tmpdir() (pipelineTmpPath) while `dir` is the
+      // user's configured download folder — on Windows these are routinely
+      // on different drives, and a plain rename() across drives fails with
+      // EXDEV ("cross-device link not permitted"). Same fallback already
+      // used by engine/images.js's placeImage() for the same reason.
+      try {
+        fs.renameSync(current, finalPath);
+      } catch (e) {
+        if (e.code !== 'EXDEV') throw e;
+        fs.copyFileSync(current, finalPath);
+        fs.unlinkSync(current);
+      }
       const idx = tmpFiles.indexOf(current);
       if (idx !== -1) tmpFiles.splice(idx, 1);
     }

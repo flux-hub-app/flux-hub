@@ -209,8 +209,10 @@
       "main.js",
       "preload.js",
       "binary-fetcher.js",
+      "ai-engine.js",
       "shims/**/*",
       "modules/**/*",
+      "engine/**/*",
       {
         "from": "renderer",
         "to": "renderer",
@@ -356,5 +358,8 @@
   },
   "optionalDependencies": {
     "electron-updater": "^6.1.7"
+  },
+  "allowScripts": {
+    "sharp@0.34.5": true
   }
 }

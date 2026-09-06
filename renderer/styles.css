@@ -4571,19 +4571,28 @@ body[data-theme="light"] .queue-fmt-tag { background: rgba(163,122,0,0.10); }
    that the footer Close button scrolls out of reach, tasks.md #30). Not a
    generalized ".modal-title" pattern; every other modal here stays
    footer-buttons-only, same as .modal-box-video's own title-bar button. */
+#downloads-modal .modal-box { position: relative; }
 .downloads-modal-title {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-right: 40px; /* reserve room so a long translated title never runs under the X */
 }
+/* Floats in the box's own corner instead of sitting inline in the flex title
+   row (was a bordered 28px square that read as a boxed button, not a close
+   affordance — tasks.md #30 follow-up). */
 .downloads-modal-x {
-  margin-left: auto;
+  position: absolute;
+  top: 5px;
+  right: 5px;
   background: transparent;
-  border: 1px solid var(--border);
-  width: 28px;
-  height: 28px;
+  border: none;
+  width: 32px;
+  height: 32px;
+  padding: 5px;
 }
-.downloads-modal-x:hover { color: var(--accent); border-color: var(--accent); }
+.downloads-modal-x svg { width: 22px; height: 22px; }
+.downloads-modal-x:hover { color: var(--accent); }
 
 /* Downloads tracker list (inside #downloads-modal) */
 .dl-item {
