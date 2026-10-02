@@ -1996,7 +1996,7 @@ ipcMain.handle('media:download', async (event, { url, format, downloadFolder, re
 
 // ─── IPC: MEDIA PROBE (fetch title without downloading) ──────────────────────
 ipcMain.handle('media:probe', (_, url) => probeMedia(url));
-ipcMain.handle('media:getStreamUrl', (_, url) => getStreamUrl(url));
+ipcMain.handle('media:getStreamUrl', (_, url, kind) => getStreamUrl(url, kind));
 
 // getStreamUrl/probeMedia moved to engine/queue.js (Phase C, 2026-08-23).
 

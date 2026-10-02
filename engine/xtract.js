@@ -43,12 +43,17 @@ function ffmpegProbeDuration(inputPath) {
   });
 }
 
-function ffmpegRun(event, args, outputPath, opId) {
+// `onProc` (optional): called with the spawned child process right after
+// spawn — lets a caller that needs to CANCEL a long-running op (preview
+// remux; nothing else does yet) track/kill it without ffmpegRun itself
+// needing to know anything about cancellation.
+function ffmpegRun(event, args, outputPath, opId, { onProc } = {}) {
   return new Promise(async (resolve) => {
     const totalSec = opId ? await ffmpegProbeDuration(args[args.indexOf('-i') + 1]) : 0;
     const ffmpegBin = getFfmpegPath();
     log('INFO', `xtract: ${ffmpegBin} ${args.map(a => /\s/.test(a) ? `"${a}"` : a).join(' ')}`);
     const proc = spawn(ffmpegBin, args);
+    if (onProc) onProc(proc);
     let stderr = '';
     proc.stderr.on('data', d => {
       const chunk = d.toString();
@@ -64,8 +69,22 @@ function ffmpegRun(event, args, outputPath, opId) {
     proc.on('error', e => resolve({ ok: false, error: `ffmpeg not found: ${e.message}` }));
     proc.on('close', code => {
       if (code !== 0) {
-        log('ERROR', `xtract: ffmpeg exit ${code}: ${stderr.slice(-500)}`);
-        return resolve({ ok: false, error: `ffmpeg exit ${code}: ${stderr.slice(-300)}` });
+        // A fixed byte-slice of raw stderr cuts mid-word/mid-line — confirmed
+        // live: a user-facing error literally read "thread with error:
+        // Invalid argument", itself a truncated fragment missing whatever
+        // came before "t" — the real diagnostic (which stream, which codec,
+        // why) was already gone. ffmpeg also writes its progress stats with
+        // \r (same line overwritten in a terminal), not \n, so those can
+        // pile up as one giant "line" ahead of the actual error — normalize
+        // \r to \n first, then drop pure stats-line noise and keep whole
+        // lines from the tail instead of an arbitrary character cut.
+        const lines = stderr.replace(/\r/g, '\n').split('\n')
+          .map(l => l.trim())
+          .filter(l => l && !/^(frame|size)=/.test(l));
+        const logTail    = lines.slice(-30).join('\n');
+        const clientTail = lines.slice(-15).join('\n');
+        log('ERROR', `xtract: ffmpeg exit ${code}: ${logTail}`);
+        return resolve({ ok: false, error: `ffmpeg exit ${code}:\n${clientTail}` });
       }
       // ffmpeg returned 0 but the output may still be unusable (empty / no
       // streams) — e.g. trim with start >= end produces a 0-byte file and
@@ -113,7 +132,15 @@ async function xtractAudio(event, { input, format, opId }) {
     wav:  ['-vn', '-c:a', 'pcm_s16le'],
     opus: ['-vn', '-c:a', 'libopus', '-b:a', '160k']
   }[ext] || ['-vn'];
-  const args = ['-hide_banner', '-y', '-i', input, ...codecArgs, out];
+  // `-sn` — drop subtitle streams. Without it, ffmpeg's default stream
+  // selection still grabs the source's "best" subtitle track (common on a
+  // multi-language mux) and tries to carry it into an audio-only container
+  // that can't hold one, which fails the whole mux with "Nothing was
+  // written... because at least one of its streams received no packets" —
+  // same failure class fixed below for xtractConvert/stageTrim. Audio
+  // extraction never exposed subtitle handling as a feature, so dropping
+  // them outright is the correct default, not a regression.
+  const args = ['-hide_banner', '-y', '-i', input, ...codecArgs, '-sn', out];
   return ffmpegRun(event, args, out, opId);
 }
 
@@ -124,10 +151,27 @@ async function xtractConvert(event, { input, format, opId }) {
   const out = xtractOutputPath(input, '-converted', ext);
   // Stream-copy when feasible (mp4↔mkv), re-encode otherwise.
   const inExt = path.extname(input).slice(1).toLowerCase();
-  const containerOnly = ['mp4', 'mkv', 'webm', 'mov'].includes(ext) && ['mp4', 'mkv', 'webm', 'mov'].includes(inExt);
+  let containerOnly = ['mp4', 'mkv', 'webm', 'mov'].includes(ext) && ['mp4', 'mkv', 'webm', 'mov'].includes(inExt);
+  if (containerOnly && ext === 'webm') {
+    // Same bug/fix as stageTrim's remuxOnly path (see WEBM_SAFE_VIDEO's
+    // comment) — webm's muxer rejects almost anything an mp4/mkv/mov
+    // source actually holds (H.264/HEVC + AAC/AC-3). Without this check,
+    // copying straight to webm fails outright; the `else` branch below
+    // (ffmpeg's own default encoder choice for a .webm output, normally
+    // libvpx-vp9+libopus) already handles it correctly instead.
+    const { videoCodec, audioCodec } = await probeCodecs(input);
+    containerOnly = (!videoCodec || WEBM_SAFE_VIDEO.has(videoCodec)) && (!audioCodec || WEBM_SAFE_AUDIO.has(audioCodec));
+  }
+  // `-sn` on both branches — see xtractAudio's comment on the same flag:
+  // ffmpeg's default stream selection still auto-maps a subtitle track
+  // (common on a multi-language mux) even on a plain `-c copy` remux, and
+  // the target container/codec may not accept it (webm only takes WebVTT;
+  // most source subs are ASS/SRT) — mux then fails outright with "at least
+  // one of its streams received no packets", even though video+audio alone
+  // would have converted fine. Confirmed against a real multi-sub mkv→webm.
   const args = containerOnly
-    ? ['-hide_banner', '-y', '-i', input, '-c', 'copy', out]
-    : ['-hide_banner', '-y', '-i', input, out];
+    ? ['-hide_banner', '-y', '-i', input, '-c', 'copy', '-sn', out]
+    : ['-hide_banner', '-y', '-i', input, '-sn', out];
   return ffmpegRun(event, args, out, opId);
 }
 
@@ -150,9 +194,12 @@ async function xtractAudiotrack(event, { input, mode, audio, opId }) {
       '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', ...acodec, '-shortest', out];
     return ffmpegRun(event, args, out, opId);
   }
-  // Default: remove — copy every stream except audio (video + subs survive).
+  // Default: remove audio — video-only copy. `-sn` for the same reason as
+  // every other copy/re-encode path in this file: the source's default
+  // subtitle track would otherwise still get auto-mapped and can fail the
+  // mux if the container doesn't accept its codec.
   const out = xtractOutputPath(input, '-noaudio', ext);
-  return ffmpegRun(event, ['-hide_banner', '-y', '-i', input, '-c', 'copy', '-an', out], out, opId);
+  return ffmpegRun(event, ['-hide_banner', '-y', '-i', input, '-c', 'copy', '-an', '-sn', out], out, opId);
 }
 
 // 2b) Resize a video to a target height (keeps aspect; -2 = even width). H.264/AAC mp4.
@@ -160,7 +207,7 @@ async function xtractResize(event, { input, height, opId }) {
   if (!input || !fs.existsSync(input)) return { ok: false, error: 'Input file not found' };
   const h = parseInt(height, 10) || 720;
   const out = xtractOutputPath(input, `-${h}p`, 'mp4');
-  const args = ['-hide_banner', '-y', '-i', input, '-vf', `scale=-2:${h}`, '-c:v', 'libx264', '-crf', '20', '-preset', 'medium', '-c:a', 'aac', '-b:a', '160k', out];
+  const args = ['-hide_banner', '-y', '-i', input, '-vf', `scale=-2:${h}`, '-c:v', 'libx264', '-crf', '20', '-preset', 'medium', '-c:a', 'aac', '-b:a', '160k', '-sn', out];
   return ffmpegRun(event, args, out, opId);
 }
 
@@ -169,7 +216,7 @@ async function xtractCompress(event, { input, crf, opId }) {
   if (!input || !fs.existsSync(input)) return { ok: false, error: 'Input file not found' };
   const q = Math.min(40, Math.max(18, parseInt(crf, 10) || 28));
   const out = xtractOutputPath(input, '-compressed', 'mp4');
-  const args = ['-hide_banner', '-y', '-i', input, '-c:v', 'libx264', '-crf', String(q), '-preset', 'medium', '-c:a', 'aac', '-b:a', '128k', out];
+  const args = ['-hide_banner', '-y', '-i', input, '-c:v', 'libx264', '-crf', String(q), '-preset', 'medium', '-c:a', 'aac', '-b:a', '128k', '-sn', out];
   return ffmpegRun(event, args, out, opId);
 }
 
@@ -220,6 +267,17 @@ const TRIM_VIDEO_CODECS = {
 // opt-in "remux only" mode (Xtract editor checkbox): a pure container/codec
 // change with no real trim or fades doesn't need TRIM_VIDEO_CODECS at all.
 const CONTAINER_REMUX_EXTS = new Set(['mp4', 'mkv', 'webm', 'mov']);
+// WebM is the one exception in that set that ISN'T actually "close enough
+// to swap freely" — its muxer only accepts VP8/VP9/AV1 video + Vorbis/Opus
+// audio (ffmpeg's own error names exactly this), while mp4/mkv/mov sources
+// are almost always H.264/HEVC + AAC/AC-3. stageTrim below probes the
+// source codecs specifically when targeting webm before trusting a stream
+// copy — found live converting a real .mkv ("Only VP8 or VP9 or AV1 video
+// and Vorbis or Opus audio... are supported for WebM. Could not write
+// header... Conversion failed!"), same class of bug already fixed tonight
+// for the UNRELATED preview-remux feature (#44) via the SAME probeCodecs().
+const WEBM_SAFE_VIDEO = new Set(['vp8', 'vp9', 'av1']);
+const WEBM_SAFE_AUDIO = new Set(['vorbis', 'opus']);
 
 // 3) Trim — fast lossless cut via -c copy. FLAC stores the original sample
 // count in its STREAMINFO header and -c copy never rewrites it, so a trimmed
@@ -602,9 +660,24 @@ async function stageTrim(event, current, { start, end, fadeIn = 0, fadeOut = 0, 
   // TRIM_VIDEO_CODECS re-encode just because the extension changed. Only
   // offered for containers close enough to swap freely (see
   // CONTAINER_REMUX_EXTS) — anything else genuinely needs a re-encode.
-  if (remuxOnly && formatChange && !wantFades && !inIsGif && !outIsGif &&
-      CONTAINER_REMUX_EXTS.has(inExt) && CONTAINER_REMUX_EXTS.has(outExt)) {
-    const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, '-c', 'copy', '-avoid_negative_ts', 'make_zero', out];
+  let remuxEligible = remuxOnly && formatChange && !wantFades && !inIsGif && !outIsGif &&
+      CONTAINER_REMUX_EXTS.has(inExt) && CONTAINER_REMUX_EXTS.has(outExt);
+  if (remuxEligible && outExt === 'webm') {
+    // See WEBM_SAFE_VIDEO/WEBM_SAFE_AUDIO's comment above — verify the
+    // SOURCE is actually webm-muxable before trusting a stream copy;
+    // otherwise fall through to the re-encode path below, which already
+    // targets webm correctly (TRIM_VIDEO_CODECS.webm: libvpx-vp9+libopus).
+    const { videoCodec, audioCodec } = await probeCodecs(current);
+    const videoOk = !videoCodec || WEBM_SAFE_VIDEO.has(videoCodec);
+    const audioOk = !audioCodec || WEBM_SAFE_AUDIO.has(audioCodec);
+    remuxEligible = videoOk && audioOk;
+  }
+  if (remuxEligible) {
+    // `-sn` — see xtractConvert's comment: a stream-copy remux still
+    // auto-maps the source's subtitle track by default, and the target
+    // container may reject its codec outright (fatal mux failure, not a
+    // skipped stream), even though video+audio alone copy fine.
+    const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-sn', out];
     return ffmpegRun(event, args, out, opId);
   }
 
@@ -619,7 +692,7 @@ async function stageTrim(event, current, { start, end, fadeIn = 0, fadeOut = 0, 
                       : dKind === 'floyd_steinberg' ? 'dither=floyd_steinberg:diff_mode=rectangle'
                       :                                'dither=none:diff_mode=rectangle';
       const filter = `[0:v]fps=${fps},${scaleArg}split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=${ditherArg}`;
-      const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, '-filter_complex', filter, '-loop', '0', '-an', out];
+      const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, '-filter_complex', filter, '-loop', '0', '-an', '-sn', out];
       return ffmpegRun(event, args, out, opId);
     }
     const audioCodec = TRIM_AUDIO_CODECS[outExt];
@@ -648,12 +721,15 @@ async function stageTrim(event, current, { start, end, fadeIn = 0, fadeOut = 0, 
     } else {
       return { ok: false, error: `Unsupported output format: ${outExt}` };
     }
-    const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, ...codecArgs, out];
+    // `-sn` — same mux-killer as the remuxEligible branch above: a real
+    // (non-copy) re-encode still auto-maps the default subtitle track
+    // unless told not to, and the target codec/container may not accept it.
+    const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, ...codecArgs, '-sn', out];
     return ffmpegRun(event, args, out, opId);
   }
 
   const codec = inExt === 'flac' ? ['-c:a', 'flac'] : ['-c', 'copy', '-avoid_negative_ts', 'make_zero'];
-  const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, ...codec, out];
+  const args = ['-hide_banner', '-y', '-ss', String(start), '-to', String(end), '-i', current, ...codec, '-sn', out];
   return ffmpegRun(event, args, out, opId);
 }
 
@@ -752,7 +828,28 @@ async function xtractProbe({ input }) {
   if (!input || !fs.existsSync(input)) return { ok: false, error: 'Input file not found' };
   const dur = await ffmpegProbeDuration(input);
   if (dur <= 0) return { ok: false, error: 'Cannot read duration' };
-  return { ok: true, duration: dur, formatted: formatSecondsHMS(dur) };
+  // `size`: lets the renderer skip WaveSurfer's own decode for huge files
+  // (see ensureTrimEditor) — WaveSurfer materializes the ENTIRE file as one
+  // in-memory Blob before decoding for the waveform, which is a known
+  // Chromium failure point on files above roughly 1 GB ("The requested
+  // file could not be read..." — a real Chromium Blob-size limitation, not
+  // an actual permission problem despite the message). The <video>/<audio>
+  // element's own native playback is unaffected — it streams via Range
+  // requests and never materializes the whole file at once.
+  let size = 0;
+  try { size = fs.statSync(input).size; } catch {}
+  // videoCodec/audioCodec: lets the renderer catch an audio-codec-only
+  // incompatibility (classic H.264+AC-3 movie rip) for a file big enough to
+  // skip WaveSurfer (see ensureTrimEditor's WAVEFORM_MAX_BYTES branch) —
+  // below that threshold WaveSurfer's OWN separate decode attempt already
+  // fails on AC-3 and triggers the existing error-driven remux flow, but a
+  // file over the skip threshold never creates a WaveSurfer instance at
+  // all, so that failure (and the native <video> element silently playing
+  // video with NO audio and no error — confirmed live, no MediaError ever
+  // fires for an unsupported secondary audio track) was never caught.
+  const { videoCodec, audioCodec } = await probeCodecs(input);
+  const audioSafe = audioCodec == null || CHROMIUM_SAFE_AUDIO.has(audioCodec);
+  return { ok: true, duration: dur, formatted: formatSecondsHMS(dur), size, videoCodec, audioCodec, audioSafe };
 }
 
 // ffmpeg availability — XTRACT tab uses this to show a friendly disabled state
@@ -792,6 +889,141 @@ function xtractCheckFfmpeg() {
       resolve({ ok: false, error: `ffmpeg exit ${code} — ${tail || 'no stderr'} [${ctx}]` });
     });
   });
+}
+
+// ─── PREVIEW REMUX — Chromium can't play everything ffmpeg can decode ─────
+// Old .avi (Chromium never shipped a full AVI demuxer) and some WebM VP9+
+// Opus combos trip the browser's own player even though ffmpeg (which does
+// the REAL edit) handles them fine. Rather than leave the editor unusable,
+// make a disposable preview copy Chromium CAN play and load THAT into the
+// trim editor instead — the original file, and `xtractInput` (what Save
+// actually operates on), are never touched.
+//
+// A plain "-c copy, and if ffmpeg accepts it call it done" isn't enough:
+// ffmpeg will happily stream-copy ANY codec into an mp4/m4a container
+// without complaint — that fixes a pure CONTAINER problem (e.g. H.264
+// wrapped in .avi) but does nothing for a CODEC Chromium never had a
+// decoder for at all (old MPEG-4 Part 2 / Xvid / DivX video, AC-3 audio —
+// both common in exactly the kind of downloaded-movie .avi/.mkv this
+// feature exists for), which would silently produce an equally unplayable
+// "fixed" file. So: probe the actual codecs first (same ffmpeg-stderr-
+// parsing trick as ffmpegProbeDuration, no ffprobe dependency) and only
+// trust a stream-copy for a stream whose codec is already in Chromium's
+// real decoder set.
+//
+// Three tiers, cheapest viable one wins — this matters most for a large
+// movie file, where "cheapest" is the difference between a few seconds
+// and several minutes:
+//   1. Both streams already Chromium-safe → full copy (container-only).
+//   2. Video safe, audio isn't (classic "H.264 + AC-3 movie rip") → copy
+//      video, transcode ONLY the audio — the video data (the vast bulk of
+//      a movie's bytes) is never re-encoded.
+//   3. Video codec itself unsafe (old Xvid/DivX/WMV) → full transcode.
+// 'veryfast' preset throughout: this is a throwaway preview, not the
+// deliverable (the real Save/pipeline runs the user's actual settings on
+// the ORIGINAL file) — encode speed matters more than ratio here. Every
+// ffmpeg call reuses ffmpegRun, so the same `xtract:progress` events the
+// Save modal's bar already listens for work here for free.
+const CHROMIUM_SAFE_VIDEO = new Set(['h264', 'vp8', 'vp9', 'av1']);
+const CHROMIUM_SAFE_AUDIO = new Set(['aac', 'mp3', 'opus', 'vorbis', 'flac']);
+function probeCodecs(inputPath) {
+  return new Promise(resolve => {
+    const proc = spawn(getFfmpegPath(), ['-hide_banner', '-i', inputPath]);
+    let buf = '';
+    proc.stderr.on('data', d => { buf += d.toString(); });
+    const done = () => {
+      const vm = buf.match(/Stream #\d+:\d+[^\n]*:\s*Video:\s*([a-zA-Z0-9_]+)/);
+      const am = buf.match(/Stream #\d+:\d+[^\n]*:\s*Audio:\s*([a-zA-Z0-9_]+)/);
+      resolve({ videoCodec: vm ? vm[1].toLowerCase() : null, audioCodec: am ? am[1].toLowerCase() : null });
+    };
+    proc.on('close', done);
+    proc.on('error', done);
+  });
+}
+// Cancel support: a large movie can genuinely take minutes to transcode,
+// with no way out otherwise (added after real large-file testing). Tracked
+// per opId — activeRemuxProcs holds the CURRENTLY running child process (a
+// fresh one replaces the previous entry when a tier falls through to the
+// next), cancelledRemuxOps records that the user asked to stop so a killed
+// process's resulting failure is reported as a cancellation, not fed into
+// the next fallback tier.
+const activeRemuxProcs = new Map();
+const cancelledRemuxOps = new Set();
+function xtractCancelPreviewRemux({ opId } = {}) {
+  if (opId == null) return { ok: false, error: 'opId required' };
+  cancelledRemuxOps.add(opId);
+  const proc = activeRemuxProcs.get(opId);
+  if (proc) { try { proc.kill('SIGTERM'); } catch {} }
+  return { ok: true };
+}
+async function xtractPreviewRemux(event, { input, opId, kind } = {}) {
+  if (!input || !fs.existsSync(input)) return { ok: false, error: 'Input file not found' };
+  // Output extension must match the ORIGINAL kind (audio vs video) — the
+  // renderer's detectMediaKind() reads it back from the extension alone to
+  // decide which editor mode (audio waveform vs video+waveform) to show,
+  // and an audio source remuxed into a bare .mp4 would misclassify as
+  // 'video'. `-vn` on the audio path drops any embedded cover-art stream
+  // too, so there's no stray video track to confuse anything downstream.
+  const isAudio = kind === 'audio';
+  const out = pipelineTmpPath(isAudio ? 'm4a' : 'mp4');
+  const run = args => ffmpegRun(event, args, out, opId, { onProc: p => activeRemuxProcs.set(opId, p) });
+  const cancelled = () => cancelledRemuxOps.has(opId);
+  try {
+    const { videoCodec, audioCodec } = await probeCodecs(input);
+    const audioSafe = audioCodec == null || CHROMIUM_SAFE_AUDIO.has(audioCodec);
+
+    if (isAudio) {
+      if (audioSafe) {
+        const r = await run(['-hide_banner', '-y', '-i', input, '-vn', '-c:a', 'copy', out]);
+        if (r.ok) return { ok: true, path: out, transcoded: false };
+        try { fs.unlinkSync(out); } catch {}
+        if (cancelled()) return { ok: false, cancelled: true };
+      }
+      const r2 = await run(['-hide_banner', '-y', '-i', input, '-vn', '-c:a', 'aac', '-b:a', '192k', out]);
+      if (!r2.ok) {
+        try { fs.unlinkSync(out); } catch {}
+        return cancelled() ? { ok: false, cancelled: true } : r2;
+      }
+      return { ok: true, path: out, transcoded: true };
+    }
+
+    const videoSafe = CHROMIUM_SAFE_VIDEO.has(videoCodec);
+    if (videoSafe && audioSafe) {
+      const r = await run(['-hide_banner', '-y', '-i', input, '-c', 'copy', '-movflags', '+faststart', out]);
+      if (r.ok) return { ok: true, path: out, transcoded: false };
+      try { fs.unlinkSync(out); } catch {}
+      if (cancelled()) return { ok: false, cancelled: true };
+    } else if (videoSafe) {
+      // Video copy + audio-only transcode — the fast path for the common
+      // "movie with AC-3/DTS audio" case.
+      const r = await run(['-hide_banner', '-y', '-i', input, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', out]);
+      if (r.ok) return { ok: true, path: out, transcoded: true };
+      try { fs.unlinkSync(out); } catch {}
+      if (cancelled()) return { ok: false, cancelled: true };
+    }
+    const r2 = await run(['-hide_banner', '-y', '-i', input, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', out]);
+    if (!r2.ok) {
+      try { fs.unlinkSync(out); } catch {}
+      return cancelled() ? { ok: false, cancelled: true } : r2;
+    }
+    return { ok: true, path: out, transcoded: true };
+  } finally {
+    activeRemuxProcs.delete(opId);
+    cancelledRemuxOps.delete(opId);
+  }
+}
+
+// Deletes a temp preview-remux file once the editor moves on (new file
+// loaded, or torn down). Restricted to our OWN naming convention under the
+// OS temp dir — never a generic "delete this path" endpoint, since the
+// path arrives from the client.
+function xtractCleanupPreviewRemux({ path: p } = {}) {
+  if (!p) return { ok: true };
+  if (path.dirname(p) !== os.tmpdir() || !/^flux-pipeline-/.test(path.basename(p))) {
+    return { ok: false, error: 'refused' };
+  }
+  try { fs.unlinkSync(p); } catch {}
+  return { ok: true };
 }
 
 // ─── Xtract "Capture" sub-panel (screenshot/recording save) + PDF-page /
@@ -959,6 +1191,9 @@ module.exports = {
     { channel: 'xtract:applyPipeline', method: 'POST', path: '/api/xtract/applyPipeline', fn: 'xtractApplyPipeline', args: (body, sender) => [{ sender }, body] },
     { channel: 'xtract:probe',      method: 'POST', path: '/api/xtract/probe',      fn: 'xtractProbe',      args: body => [body] },
     { channel: 'xtract:checkFfmpeg', method: 'GET', path: '/api/xtract/checkFfmpeg', fn: 'xtractCheckFfmpeg', args: () => [] },
+    { channel: 'xtract:previewRemux', method: 'POST', path: '/api/xtract/previewRemux', fn: 'xtractPreviewRemux', args: (body, sender) => [{ sender }, body] },
+    { channel: 'xtract:cancelPreviewRemux', method: 'POST', path: '/api/xtract/cancelPreviewRemux', fn: 'xtractCancelPreviewRemux', args: body => [body] },
+    { channel: 'xtract:cleanupPreviewRemux', method: 'POST', path: '/api/xtract/cleanupPreviewRemux', fn: 'xtractCleanupPreviewRemux', args: body => [body] },
     { channel: 'capture:saveImage', method: 'POST', path: '/api/capture/saveImage', fn: 'captureSaveImage', args: body => [body] },
     { channel: 'capture:saveRecording', method: 'POST', path: '/api/capture/saveRecording', fn: 'captureSaveRecording', args: body => [body], binary: true },
     { channel: 'convert:saveAnnotated', method: 'POST', path: '/api/convert/saveAnnotated', fn: 'convertSaveAnnotated', args: body => [body] },
@@ -968,5 +1203,5 @@ module.exports = {
   // by name via mod[route.fn](...).
   xtractAudio, xtractConvert, xtractAudiotrack, xtractResize, xtractCompress,
   xtractTrim, xtractSubs, xtractFrame, xtractConcat, xtractMeta, xtractNormalize,
-  xtractApplyPipeline,
+  xtractApplyPipeline, xtractPreviewRemux, xtractCancelPreviewRemux, xtractCleanupPreviewRemux,
 };

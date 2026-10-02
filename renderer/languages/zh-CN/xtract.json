@@ -159,6 +159,7 @@
   "xtract_av_reset_all": "重置所有更改",
   "xtract_av_save": "保存",
   "xtract_av_save_modal_title": "保存",
+  "xtract_waveform_too_large": "文件超过1GB——无法预览波形，请使用下方的时间输入框进行裁剪",
   "xtract_normalize_enable": "启用标准化",
   "xtract_normalize_target": "目标 (LUFS)",
   "xtract_image_no_edits": "没有可保存的内容",

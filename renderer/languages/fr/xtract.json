@@ -159,6 +159,7 @@
   "xtract_av_reset_all": "Réinitialiser toutes les modifications",
   "xtract_av_save": "Enregistrer",
   "xtract_av_save_modal_title": "Enregistrer",
+  "xtract_waveform_too_large": "Fichier de plus de 1 Go — aperçu de la forme d'onde indisponible, utilisez les champs de temps ci-dessous pour découper",
   "xtract_normalize_enable": "Activer la normalisation",
   "xtract_normalize_target": "Cible (LUFS)",
   "xtract_image_no_edits": "Rien à enregistrer",

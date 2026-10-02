@@ -159,6 +159,7 @@
   "xtract_av_reset_all": "Alle Änderungen zurücksetzen",
   "xtract_av_save": "Speichern",
   "xtract_av_save_modal_title": "Speichern",
+  "xtract_waveform_too_large": "Datei über 1 GB — Wellenform-Vorschau nicht verfügbar, zum Schneiden die Zeitfelder unten verwenden",
   "xtract_normalize_enable": "Normalisierung aktivieren",
   "xtract_normalize_target": "Ziel (LUFS)",
   "xtract_image_no_edits": "Nichts zu speichern",

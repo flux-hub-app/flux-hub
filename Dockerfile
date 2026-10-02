@@ -15,7 +15,13 @@ FROM node:22-bookworm-slim
 # .tar.xz (tar -xJf needs the `xz` binary), some archives are .zip (needs
 # `unzip`). Without this, ffmpeg fetch silently fails ("fallito" in the UI)
 # because tar can't find xz on a fresh container.
-RUN apt-get update && apt-get install -y --no-install-recommends unzip xz-utils \
+# ca-certificates: Node bundles its own root CA store (so binary-fetcher.js's
+# own HTTPS downloads work fine without it), but yt-dlp_linux is a standalone
+# Python/OpenSSL binary that verifies against the SYSTEM CA store at
+# /etc/ssl/certs — absent on a slim image, causing every yt-dlp fetch to fail
+# with CERTIFICATE_VERIFY_FAILED regardless of the URL being fetched.
+RUN apt-get update && apt-get install -y --no-install-recommends unzip xz-utils ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -23,8 +29,17 @@ WORKDIR /app
 # Only production deps — devDependencies (electron, electron-builder, the
 # icon-build tools) are desktop-build-only and never touched by server.js.
 # No package-lock.json in the repo yet, hence `npm install` not `npm ci`.
+# NOT --omit=optional: npm's "optional" omission strips EVERY package's own
+# nested optionalDependencies tree-wide, not just this project's top-level
+# one (electron-updater, desktop-only, harmless dead weight here) — sharp
+# ships its native binary (@img/sharp-linux-x64 etc.) as an optionalDependency
+# precisely so the right one can be skipped per-platform; omitting the whole
+# category instead of letting npm's own os/cpu filtering do that job strips
+# sharp's binary too, breaking every image-editor save with "Could not load
+# the sharp module using the linux-x64 runtime" (confirmed root cause of a
+# live Docker report — the fix is this flag, not a code change).
 COPY package.json ./
-RUN npm install --omit=dev --omit=optional --no-audit --no-fund && npm cache clean --force
+RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 
 # App code — only what server.js's require graph (+ the static web UI it
 # serves) actually reaches. main.js/preload.js/shims for the desktop build
@@ -32,7 +47,7 @@ RUN npm install --omit=dev --omit=optional --no-audit --no-fund && npm cache cle
 # needed too — index.html's logos reference it as `../assets/...`, which
 # server.js serves from this same root sibling to renderer/ (see server.js's
 # ASSETS_DIR) — only 650K, not worth trimming to the two SVGs actually used.
-COPY server.js binary-fetcher.js ./
+COPY server.js binary-fetcher.js ai-engine.js ./
 COPY engine ./engine
 COPY renderer ./renderer
 COPY modules ./modules

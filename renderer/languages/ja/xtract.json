@@ -159,6 +159,7 @@
   "xtract_av_reset_all": "すべての変更をリセット",
   "xtract_av_save": "保存",
   "xtract_av_save_modal_title": "保存",
+  "xtract_waveform_too_large": "ファイルが1GBを超えています — 波形プレビューは利用できません。下の時間入力を使ってトリムしてください",
   "xtract_normalize_enable": "ノーマライズを有効化",
   "xtract_normalize_target": "ターゲット (LUFS)",
   "xtract_image_no_edits": "保存する変更がありません",

@@ -33,7 +33,7 @@
   "nzb_target_unconfigured": "NZB forwarding not configured — see Settings → Integrations",
   "torrent_copy_magnet": "Copy magnet",
   "torrent_queued_short": "Add to queue",
-  "subs_title": "Subscriptions",
+  "subs_title": "Active subscriptions",
   "subs_add": "Add",
   "subs_help": "Follow a search — FLUX checks it periodically (Settings → Scheduler) and auto-queues new, not-yet-grabbed matches. For titles without a ready-made RSS feed (see RSS's own auto-download for those).",
   "subs_modal_title": "Add subscription",

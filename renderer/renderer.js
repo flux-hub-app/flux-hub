@@ -275,6 +275,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   // config.modules_enabled. Must run BEFORE switchTab fires so the user
   // can't land on a tab of a disabled module. The registry is the source
   // of truth for module → tabs mapping.
+  applyDesktopOnlyHiding();
   await applyModuleVisibility();
   // Settings icon click → collapses the right-side actions card (see
   // bindTopbarCardCollapse). The old behaviour (jump to Settings tab) is
@@ -290,6 +291,19 @@ window.addEventListener('DOMContentLoaded', async () => {
     config.show_activity_logs = next;
     const showLogsEl = document.getElementById('cfg-show-logs');
     if (showLogsEl) showLogsEl.checked = next;
+    try { await window.api.config.save(config); } catch {}
+  });
+  // Settings > "Show in-page activity logs" checkbox had NO listener of its
+  // own — it only took effect once readSettingsFromUI() ran, which happens
+  // on the big Save button at the bottom of the page, not on the checkbox
+  // itself. Every other toggle-style switch in this app (this one included,
+  // visually) reads as "flips on the spot" — ticking it and seeing nothing
+  // happen (no Save click yet) looked broken. Apply it live, same as the
+  // topbar icon right above.
+  document.getElementById('cfg-show-logs')?.addEventListener('change', async (e) => {
+    const next = e.target.checked;
+    document.body.classList.toggle('show-activity-logs', next);
+    config.show_activity_logs = next;
     try { await window.api.config.save(config); } catch {}
   });
   refreshIdentifyButton();
@@ -1062,8 +1076,13 @@ function playPlaylistQueueAt(idx) {
   if (!playlistQueue.length || idx < 0 || idx >= playlistQueue.length) return;
   playlistQueueIdx = idx;
   const it = playlistQueue[playlistQueueIdx];
+  // Electron can load a file:// URL straight into <audio>/<video>; a browser
+  // (server profile) can't fetch one cross-origin from an http:// page — it
+  // needs a real HTTP URL instead, served by GET /api/media/file.
   const url = it.type === 'file'
-    ? 'file:///' + String(it.path).replace(/\\/g, '/').replace(/^\/+/, '')
+    ? (window.api.isServer
+        ? `/api/media/file?path=${encodeURIComponent(it.path)}`
+        : 'file:///' + String(it.path).replace(/\\/g, '/').replace(/^\/+/, ''))
     : it.url;
   playInGlobalPlayer({ url, title: it.title || url, source: 'playlist', id: `pl_q_${playlistQueueIdx}` });
   const audio = document.getElementById('global-audio');
@@ -1187,8 +1206,14 @@ function setXtractEditorLoading(loading) {
 // between "what you see" and "what Save sends". Returns null pieces for any
 // stage that's a no-op so xtract:applyPipeline can skip them cheaply.
 function collectXtractPipeline() {
-  if (!trimEditor?.ws) return null;
-  const dur = trimEditor.ws.getDuration() || 0;
+  if (!trimEditor) return null;
+  // No WaveSurfer/region for a file over the waveform-skip size threshold
+  // (ensureTrimEditor) — trimEditor.duration covers the duration need, and
+  // the branch below (no region) still supports a pure format conversion
+  // by reading the same start/end text inputs directly (pre-filled to the
+  // full range by that skip branch, but still plain editable fields —
+  // same source the region-based branch already reads from).
+  const dur = trimEditor.ws ? (trimEditor.ws.getDuration() || 0) : (trimEditor.duration || 0);
   const region = trimEditor.region;
   const { fadeIn, fadeOut } = readFadeParams();
   const fmt = document.getElementById('xtract-trim-format')?.value || '';
@@ -1223,6 +1248,19 @@ function collectXtractPipeline() {
         remuxOnly
       };
     }
+  } else if (!region && dur > 0 && formatChanged) {
+    // Same pure-format-conversion case as above, but for a file that never
+    // got a region at all (waveform skipped) — a trim/fade selection isn't
+    // possible without one, but a whole-file format change doesn't need
+    // one either. Same remuxOnly semantics, same input fields.
+    const remuxOnly = !!document.getElementById('xtract-remux-toggle')?.checked
+      && !xtractConcatExtras.length && !mode && !normalizeOn;
+    trim = {
+      start: document.getElementById('xtract-trim-start')?.value.trim(),
+      end:   document.getElementById('xtract-trim-end')?.value.trim(),
+      fadeIn: 0, fadeOut: 0,
+      remuxOnly
+    };
   }
   return {
     // Order matters — this is exactly the list order shown/reorderable in
@@ -2175,15 +2213,13 @@ function collectImageEdits() {
 // whole stack in ONE main-process sharp pass (images:applyPipeline).
 function doImageSaveAll() {
   if (!xtractInput || !imgCropState) return;
-  const edits = collectImageEdits();
-  if (!edits) {
-    showToast({
-      title: t('xtract_image_no_edits') || 'Nothing to save',
-      body:  t('xtract_image_no_edits_body') || 'No pending edits — adjust a tool first.',
-      kind:  'warn', ttl: 4000
-    });
-    return;
-  }
+  // Don't bail here on "no edits" — the output FORMAT is only picked inside
+  // the modal this opens, so a pure format-change save (crop/fx/etc all
+  // untouched) would never be reachable at all if this returned early, same
+  // bug as Xtract Video's #27 before its fix. The real no-op check (nothing
+  // staged AND format unchanged) moves to confirmImgSave, once the picked
+  // format is known.
+  const edits = collectImageEdits() || {};
   // Prefill the modal: source folder + name + "-edit"; format pills free
   // unless transparency forces PNG.
   imgSaveDir = xtractInput.replace(/[\\/][^\\/]+$/, '');
@@ -2210,10 +2246,25 @@ let imgSaveDir = null; // destination picked in the save modal (default: source 
 async function confirmImgSave() {
   const modal = document.getElementById('img-save-modal');
   if (!xtractInput) { modal?.classList.add('hidden'); return; }
-  const edits = collectImageEdits();
-  if (!edits) { modal?.classList.add('hidden'); return; }
+  const edits = collectImageEdits() || {};
   const outputName = (document.getElementById('img-save-name')?.value || '').trim();
   const format = document.querySelector('input[name="img-save-format"]:checked')?.value || '';
+  // The real no-op check, now that format is known: nothing staged (crop/fx/
+  // recolor/rmbg/resize), no annotations, AND the picked format matches the
+  // source's own — genuinely nothing for the pipeline to do. A pure format
+  // change alone (formatChanged) IS a valid save, same as Xtract Video's
+  // format-only conversion.
+  const hasAnnotations = !!annotateState?.canvas?.getObjects()?.length;
+  const formatChanged = !!format && format !== xtractInputExt();
+  if (!Object.keys(edits).length && !hasAnnotations && !formatChanged) {
+    modal?.classList.add('hidden');
+    showToast({
+      title: t('xtract_image_no_edits') || 'Nothing to save',
+      body:  t('xtract_image_no_edits_body') || 'No pending edits — adjust a tool first.',
+      kind:  'warn', ttl: 4000
+    });
+    return;
+  }
   if (format) edits.format = format;
   // Annotations become the pipeline's input: the fabric canvas flattened at
   // natural resolution (PNG bytes). Refresh its background FIRST so the
@@ -2232,7 +2283,24 @@ async function confirmImgSave() {
   if (btn) btn.disabled = true;
   const stepsHint = Object.keys(edits).concat(inputData ? ['annotate'] : []).join(', ');
   appendLog('xtract-log', `Saving edits (${stepsHint}) for ${xtractInput.split(/[\\/]/).pop()}…`, 'info');
-  const r = await window.api.images.applyPipeline({ input: xtractInput, inputData, edits, outputName, outputDir: imgSaveDir });
+  // try/catch around the call itself — missing before, so a REJECTED
+  // promise (not just an {ok:false} result) left the button stuck on
+  // btn-loading forever with no visible error at all. Found live: a
+  // large annotated photo's request body exceeded the server's JSON size
+  // cap, which dropped the connection with no response ever sent — fixed
+  // separately (server.js/engine/images.js's maxBodyBytes), but this half
+  // of the fix stands on its own for any OTHER way the call could reject
+  // (network blip, server restart mid-request, etc).
+  let r;
+  try {
+    r = await window.api.images.applyPipeline({ input: xtractInput, inputData, edits, outputName, outputDir: imgSaveDir });
+  } catch (e) {
+    btn?.classList.remove('btn-loading');
+    if (btn) btn.disabled = !xtractInput;
+    appendLog('xtract-log', `✗ ${e.message}`, 'error');
+    showToast({ title: t('xtract_image_save_err_title') || 'Save failed', body: e.message, kind: 'err', ttl: 6000 });
+    return;
+  }
   btn?.classList.remove('btn-loading');
   if (btn) btn.disabled = !xtractInput;
   if (r.ok) {
@@ -2598,6 +2666,13 @@ function bindSubsSearchModal() {
 let trimEditor = null;       // { ws, regions, region }
 let trimEditorFile = null;
 let trimEditorLibs = null;   // cached dynamic-import result
+// Temp file from an auto preview-remux (see ensureTrimEditor's ws.on('error')
+// handler) — set while the trim editor is displaying a converted STAND-IN
+// for a file Chromium can't decode natively. xtractInput (what Save/the
+// real pipeline operates on) never points at this; it's cleaned up whenever
+// the editor moves on to a different file.
+let xtractPreviewRemuxTmpPath = null;
+let xtractPreviewRemuxAttempted = false;
 
 // Two-way sync gate: when the region updates the time inputs (or vice-versa)
 // the change event would loop without this.
@@ -2616,15 +2691,29 @@ function parseTrimTime(s) {
   return null;
 }
 
+// Never omit the hours component once minutes would hit 60+: ffmpeg's own
+// `-ss`/`-to` duration grammar REQUIRES the one-colon "MM:SS" form to keep
+// MM in 0-59 — "117:41.5" (what the old m = Math.floor(sec/60), no hours
+// at all, produced for any file over ~100 minutes) is flatly rejected
+// ("Invalid duration for option to"), confirmed live against real ffmpeg.
+// parseTrimTime already parses BOTH "MM:SS" and "H:MM:SS" correctly, so
+// this round-trips fine either way — only the display format needed this.
 function formatTrimTime(sec) {
   if (!isFinite(sec) || sec < 0) sec = 0;
-  const m = Math.floor(sec / 60);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
   const s = Math.floor(sec % 60);
   const ds = Math.floor((sec - Math.floor(sec)) * 10);
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${ds}`;
+  const mmss = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${ds}`;
+  return h > 0 ? `${h}:${mmss}` : mmss;
 }
 
 function localFileURL(p) {
+  // Server profile: a browser can't fetch file:// from an http:// page —
+  // route through the same streaming endpoint the Playlist fix introduced.
+  // Shared by every local-file preview (Xtract waveform/video/image/PDF.js/
+  // thumbnails), so this one branch covers all of them.
+  if (window.api.isServer) return `/api/media/file?path=${encodeURIComponent(p)}`;
   // Windows paths: backslashes → forward, then encodeURI to escape spaces /
   // accents while preserving the drive-letter colon and slashes.
   return 'file:///' + encodeURI(p.replace(/\\/g, '/'));
@@ -3076,8 +3165,14 @@ function computeXtractTimeline() {
 // drawing either — the WaveSurfer region plugin already highlights the kept
 // range live, natively.
 function renderXtractPipelinePreview() {
-  if (!trimEditor || !trimEditor.ws) return;
-  const dur = trimEditor.ws.getDuration() || 0;
+  if (!trimEditor) return;
+  // No WaveSurfer/region for a file over the waveform-skip size threshold
+  // (ensureTrimEditor) — trimEditor.duration covers that case so a PURE
+  // format change can still dirty/enable Save (region-based trim/fade
+  // still need a region, so those checks below naturally stay false —
+  // the only thing a format-only conversion needs is the known duration,
+  // which this has regardless of WaveSurfer).
+  const dur = trimEditor.ws ? (trimEditor.ws.getDuration() || 0) : (trimEditor.duration || 0);
   if (dur <= 0) return;
 
   const region = trimEditor.region;
@@ -3123,6 +3218,74 @@ async function loadTrimEditorLibs() {
 // toast after the user already loaded another file successfully.
 let _trimEditorGen = 0;
 
+// Triggered from ensureTrimEditor's ws.on('error') handler when Chromium's
+// player can't decode the loaded file (old .avi, some WebM combos, etc.).
+// Shows an explanatory modal + real progress (reusing xtract:progress —
+// same events/markup the Save modal's own bar already listens for) while
+// ffmpeg makes a throwaway preview copy server/desktop-side, then reloads
+// the SAME trim editor pointed at that copy. The original file — and
+// xtractInput, what Save actually operates on — are never touched.
+async function attemptPreviewRemux(filePath, kind) {
+  const modal     = document.getElementById('xtract-preview-remux-modal');
+  const bar       = document.getElementById('xtract-preview-remux-progress');
+  const cancelBtn = document.getElementById('xtract-preview-remux-cancel');
+  const opId      = ++xtractOpCounter;
+  if (bar) {
+    bar.dataset.opId = opId;
+    bar.querySelector('.progress-bar').style.width = '0%';
+    bar.querySelector('.progress-bar-text').textContent = '0%';
+  }
+  modal?.classList.remove('hidden');
+  appendLog('xtract-log', `Converting preview copy for ${filePath.split(/[\\/]/).pop()}…`, 'info');
+  // ffprobe-seeded fallback the "no audio track"/"decode timeout" paths
+  // already use — waveform-less, but trim-by-typed-times still works.
+  const seedManualTimes = async () => {
+    try {
+      const r = await window.api.xtract.probeDuration(filePath);
+      if (r?.ok && r.duration > 0) {
+        const startEl = document.getElementById('xtract-trim-start');
+        const endEl   = document.getElementById('xtract-trim-end');
+        if (startEl) startEl.value = '00:00.0';
+        if (endEl)   endEl.value   = formatTrimTime(r.duration);
+        if (trimEditor) trimEditor.duration = r.duration;
+      }
+    } catch {}
+  };
+  let cancelled = false;
+  const onCancelClick = () => {
+    cancelled = true;
+    window.api.xtract.cancelPreviewRemux({ opId }).catch(() => {});
+    modal?.classList.add('hidden');
+    appendLog('xtract-log', '⚠ Preview conversion cancelled', 'warn');
+    document.getElementById('trim-waveform')?.classList.add('is-ready', 'has-error');
+    seedManualTimes().finally(() => setXtractEditorLoading(false));
+  };
+  cancelBtn?.addEventListener('click', onCancelClick, { once: true });
+  const fail = async (errMsg) => {
+    if (cancelled) return; // user already moved on via Cancel — don't pile on
+    modal?.classList.add('hidden');
+    appendLog('xtract-log', `✗ Preview conversion failed: ${errMsg}`, 'error');
+    showToast({ title: 'Waveform error', body: `${errMsg}\n\nTip: convert to MP4 or MP3 via Trim & Convert and reload the result.`, kind: 'warn', ttl: 8000 });
+    document.getElementById('trim-waveform')?.classList.add('is-ready', 'has-error');
+    await seedManualTimes();
+    setXtractEditorLoading(false);
+  };
+  try {
+    const r = await window.api.xtract.previewRemux({ input: filePath, opId, kind });
+    if (cancelled) return; // already handled by onCancelClick — ignore this late result
+    modal?.classList.add('hidden');
+    if (!r.ok) return fail(r.error || 'unknown error');
+    appendLog('xtract-log', `✓ Preview copy ready${r.transcoded ? ' (re-encoded)' : ''}`, 'ok');
+    xtractPreviewRemuxTmpPath = r.path;
+    await ensureTrimEditor(r.path);
+  } catch (e) {
+    if (cancelled) return;
+    return fail(e?.message || String(e));
+  } finally {
+    cancelBtn?.removeEventListener('click', onCancelClick);
+  }
+}
+
 async function ensureTrimEditor(filePath) {
   const kind = filePath ? detectMediaKind(filePath) : null;
   if (kind !== 'audio' && kind !== 'video') { destroyTrimEditor(); return; }
@@ -3131,7 +3294,7 @@ async function ensureTrimEditor(filePath) {
   // content while keeping the same name), and skipping the reload would
   // leave the trim editor on the OLD audio/video. Re-mounting is cheap.
 
-  destroyTrimEditor();
+  destroyTrimEditor(filePath);
   const myGen = ++_trimEditorGen;
   trimEditorFile = filePath;
   const editorEl = document.getElementById('trim-editor');
@@ -3201,10 +3364,156 @@ async function ensureTrimEditor(filePath) {
     if (isVideo) {
       videoEl.src = localFileURL(filePath);
       try { videoEl.load(); } catch {}
+      // The native element's OWN decode/demux failure, independent of
+      // WaveSurfer — which for files over the waveform-skip size
+      // threshold below is never even created, so its usual forwarding of
+      // this same failure (what actually drives the auto-remux-and-retry
+      // flow, #44) never gets a chance to fire. A file this size can
+      // still genuinely be undecodable by Chromium for reasons that have
+      // nothing to do with its size (old .avi — Chromium never shipped a
+      // full AVI demuxer, regardless of how small or large the file is),
+      // and it still needs that SAME recovery — just without WaveSurfer
+      // in the loop. Harmless to also have this for small files: the
+      // xtractPreviewRemuxAttempted guard (shared with WaveSurfer's own
+      // handler below) means whichever of the two fires first wins, never
+      // both. { once: true } — a fresh ensureTrimEditor call resets
+      // videoEl.src from scratch (the hard-reset above), so a stale
+      // listener on an abandoned load firing late is the only risk this
+      // guards against.
+      videoEl.addEventListener('error', () => {
+        if (trimEditorFile !== filePath || xtractPreviewRemuxAttempted) return;
+        const nativeErr = videoEl.error;
+        const msg = nativeErr?.message || `MediaError code ${nativeErr?.code}`;
+        // Codes 3 (MEDIA_ERR_DECODE) / 4 (MEDIA_ERR_SRC_NOT_SUPPORTED) are
+        // ALWAYS a format/codec problem regardless of what (if anything)
+        // the message text says — Chromium's message for code 4 is often
+        // empty or too generic to match the text patterns below.
+        const isFormatErr = nativeErr?.code === 3 || nativeErr?.code === 4
+          || /MEDIA_ELEMENT_ERROR|Format error|unsupported|DEMUXER_ERROR|PipelineStatus/i.test(msg);
+        if (!isFormatErr) return;
+        xtractPreviewRemuxAttempted = true;
+        _trimEditorGen++; // invalidate the pending decode-timeout — same reasoning as the ws.on('error') branch below
+        appendLog('xtract-log', `⚠ Video playback error — ${msg} — converting a preview copy…`, 'warn');
+        attemptPreviewRemux(filePath, kind);
+      }, { once: true });
     }
   }
   if (gifEl) gifEl.classList.add('hidden');
   waveEl.style.display = '';
+
+  // Skip WaveSurfer's own full-file decode for very large files — it
+  // materializes the ENTIRE file as one in-memory Blob before decoding for
+  // the waveform, a known Chromium failure point above roughly 1 GB ("The
+  // requested file could not be read, typically due to permission
+  // problems..." — a real Chromium Blob-size limitation, not an actual
+  // permission issue, confirmed against multiple independent bug reports).
+  // For VIDEO, native <video> playback (already wired above via
+  // videoEl.src) is completely unaffected by this skip — it streams via
+  // Range requests (further protected by server.js's own chunking of
+  // open-ended range requests, so no multi-GB single-response stall
+  // either) and never materializes the whole file at once, so skipping
+  // just gives up the waveform BARS, not playback. For AUDIO there's no
+  // separate native element — WaveSurfer IS the player — so this trades
+  // away playback too for a file this size, same accepted tradeoff video
+  // already has (no crash is worth more than a play button here). A
+  // genuinely huge audio file is rare but not impossible (an uncompressed
+  // WAV of a long recording, a lossless rip of a full album as one file)
+  // — covering it costs nothing extra, same check, same threshold. Images
+  // never reach this code at all (separate ensureImageEditor path, plain
+  // <img src>, no WaveSurfer/Blob involved — a different, unaffected
+  // browser decode pipeline).
+  const WAVEFORM_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB
+  {
+    const p = await window.api.xtract.probe({ input: filePath });
+    if (trimEditorFile !== filePath) return; // switched files while probing
+    // The native-element error listener above may have ALREADY reacted
+    // (native playback can fail before this probe resolves) and kicked
+    // off attemptPreviewRemux — don't also run the "too large" skip on
+    // top of an in-flight remux attempt for the SAME load. Scoped to
+    // `filePath !== xtractPreviewRemuxTmpPath` — without that, this guard
+    // ALSO fired (bug found live: "rimane sotto loading waveform...")
+    // the second time ensureTrimEditor runs, right after a successful
+    // remux, to load the remux's OWN output: attemptPreviewRemux keeps
+    // `xtractPreviewRemuxAttempted` true on purpose across that reload (so
+    // the native-error-listener/ws.on('error') below don't fire a SECOND
+    // remux on the already-fixed file), but this specific early-return
+    // was never meant to also swallow THAT reload's own normal setup —
+    // doing so skipped WaveSurfer/the too-large-skip-UI entirely, leaving
+    // the "Loading waveform…" placeholder stuck forever despite playback
+    // actually working fine underneath.
+    if (xtractPreviewRemuxAttempted && filePath !== xtractPreviewRemuxTmpPath) return;
+    // Audio-codec safety check — NOT size-gated (checked regardless of
+    // WAVEFORM_MAX_BYTES below). Originally scoped to over-threshold files
+    // only, on the assumption that under the threshold WaveSurfer's own
+    // separate decode attempt (fetchBlob+decodeAudioData) already fails on
+    // an unsupported codec (classic H.264+AC-3 movie rip) and triggers the
+    // existing ws.on('error') → attemptPreviewRemux flow — confirmed WRONG
+    // live: an under-1GB H.264+AC-3 file loads with no error and no
+    // waveform problem at all, just silently no sound, because WaveSurfer
+    // bound via `media:` doesn't actually need to decode the audio itself
+    // to draw from — only Chromium's own native audio decode (same
+    // pipeline regardless of file size) ever hits the unsupported codec,
+    // and THAT never raises anything ws.on('error')/the native 'error'
+    // listener can catch. So: check every video load, any size. Excluded
+    // only for the remux's own output (`filePath !== xtractPreviewRemuxTmpPath`)
+    // to never re-trigger on an already-fixed file.
+    if (isVideo && p?.ok && p.audioCodec && !p.audioSafe && filePath !== xtractPreviewRemuxTmpPath) {
+      xtractPreviewRemuxAttempted = true;
+      appendLog('xtract-log', `⚠ Audio codec "${p.audioCodec}" not supported by the browser — converting a preview copy…`, 'warn');
+      attemptPreviewRemux(filePath, kind);
+      return;
+    }
+    if (p?.ok && p.size > WAVEFORM_MAX_BYTES) {
+      appendLog('xtract-log', `⚠ File too large for waveform preview (${(p.size / 1e9).toFixed(1)} GB) — trim by typing times`, 'warn');
+      // `too-large` (on top of the shared `has-error`) picks the shorter,
+      // specific empty-state message + shorter box (styles.css) — every
+      // OTHER path that adds `has-error` alone (no audio track, decode
+      // timeout, generic format error) is untouched, keeps the generic
+      // message/default height.
+      waveEl.classList.add('is-ready', 'has-error', 'too-large');
+      // Real translatable node (data-i18n + applyI18n, the same pattern
+      // the rest of the app uses) — the generic has-error message above
+      // is a CSS ::before and was never i18n'd, but THIS one was
+      // specifically asked to be translated, which a CSS content string
+      // can't do. destroyTrimEditor()'s cleanup already removes every
+      // non-svg child of waveEl on the next load, so no extra cleanup
+      // needed here.
+      const tooLargeMsg = document.createElement('div');
+      tooLargeMsg.className = 'trim-waveform-too-large-msg';
+      tooLargeMsg.setAttribute('data-i18n', 'xtract_waveform_too_large');
+      tooLargeMsg.textContent = t('xtract_waveform_too_large') || 'File over 1 GB — waveform preview unavailable, trim using the time inputs below';
+      waveEl.appendChild(tooLargeMsg);
+      const startEl = document.getElementById('xtract-trim-start');
+      const endEl   = document.getElementById('xtract-trim-end');
+      if (startEl) startEl.value = '00:00.0';
+      if (endEl)   endEl.value   = formatTrimTime(p.duration);
+      trimEditor = { ws: null, regions: null, region: null, duration: p.duration };
+      // No WaveSurfer instance in this branch — no waveform to scrub, but
+      // videoEl's native `controls` (always on, set in the HTML) already
+      // covers seeking here regardless.
+      // The trim-play-btn click handler falls back to driving videoEl
+      // directly when ws is null (see its own code), but its ICON still
+      // needs updating to track native play/pause state; the normal
+      // 'ws.on(play/pause)' / videoEl listeners that do this for a
+      // regular load are set up further down, past this early return, so
+      // they never run here. Confirmed live (readyState 4, networkState
+      // 1, error null — the native element loads and IS ready; only the
+      // play control was ever missing for this path, not loading/decoding).
+      if (isVideo && videoEl) {
+        const setIcon = (name) => {
+          const btn = document.getElementById('trim-play-btn');
+          if (!btn) return;
+          btn.setAttribute('data-lucide-icon', name);
+          applyLucideIcons(btn.parentElement || document);
+        };
+        videoEl.addEventListener('play',  () => setIcon('pause'));
+        videoEl.addEventListener('pause', () => setIcon('play'));
+        videoEl.addEventListener('ended', () => setIcon('play'));
+      }
+      setXtractEditorLoading(false);
+      return;
+    }
+  }
 
   let libs;
   try { libs = await loadTrimEditorLibs(); }
@@ -3283,6 +3592,15 @@ async function ensureTrimEditor(filePath) {
       console.warn('[trim-editor] WaveSurfer fetch aborted (benign):', msg);
       return;
     }
+    // Any OTHER error is a terminal outcome for this load, handled one way
+    // or another by exactly one of the branches below — invalidate the
+    // pending stall-watchdog (scheduled further down) right here, once,
+    // for all of them. Without this a stall check that hasn't fired yet
+    // still can, minutes later, showing a second contradictory "Loading
+    // stalled" toast on top of whatever this handler already did (found
+    // live: a real decode error at 18:05:05, then a redundant "stalled"
+    // toast at 18:05:32 for the SAME already-handled load).
+    _trimEditorGen++;
     // "Unable to decode audio data" on a video file usually means the video
     // simply has no audio track. Don't toast at the user — just transition
     // the waveform area to the "no audio" empty state and seed the time
@@ -3310,8 +3628,24 @@ async function ensureTrimEditor(filePath) {
     // fairly often trips Chromium's MEDIA_ELEMENT_ERROR decoder. The fix
     // for the user is to remux to a known-good container (MP4 H.264 +
     // AAC) via this same Trim & Convert card.
+    // DEMUXER_ERROR_COULD_NOT_OPEN is the same class of Chromium media-
+    // pipeline failure as MEDIA_ELEMENT_ERROR (a different subsystem, same
+    // "this container/codec isn't supported" root cause — hits .avi
+    // reliably, since Chromium never shipped a full AVI demuxer).
     const isWebmFormatErr = /MEDIA_ELEMENT_ERROR|Format error/i.test(msg) && /\.webm$/i.test(filePath);
-    const isFormatErrGeneric = /MEDIA_ELEMENT_ERROR|Format error|unsupported/i.test(msg);
+    const isFormatErrGeneric = /MEDIA_ELEMENT_ERROR|Format error|unsupported|DEMUXER_ERROR|PipelineStatus/i.test(msg);
+    // First time hitting this class of error for THIS file: try an
+    // automatic, transparent preview-remux instead of dumping the raw
+    // error on the user (attemptPreviewRemux manages its own modal/loader
+    // and either reloads the editor with the converted stand-in, or falls
+    // through to the exact same toast below on failure). Guarded so a
+    // SECOND error on the already-remuxed file doesn't loop.
+    if (isFormatErrGeneric && !xtractPreviewRemuxAttempted) {
+      xtractPreviewRemuxAttempted = true;
+      appendLog('xtract-log', `⚠ Format error — ${msg} — converting a preview copy…`, 'warn');
+      attemptPreviewRemux(filePath, kind);
+      return;
+    }
     let toastBody = msg;
     if (isWebmFormatErr) {
       toastBody = 'WebM decoder error — Chromium can\'t decode this container/codec combo. Convert to MP4 via Trim & Convert (Format: MP4) and re-load the result.';
@@ -3332,15 +3666,22 @@ async function ensureTrimEditor(filePath) {
     waveEl.classList.add('has-error');
     setXtractEditorLoading(false);
   });
-  // Timeout for the WaveSurfer decode. Bumped from 6 s to 30 s — a 150 MB
-  // video on a spinning disk legitimately takes that long to fetch+decode
-  // and we were timing out before completion. The fallback path (ffprobe
-  // for duration so the time inputs work) is only useful when the decode
-  // genuinely fails; for slow disks we want to wait.
-  // Generation guard: if a SUBSEQUENT ensureTrimEditor call happened (user
-  // loaded another file, or our drop handler re-triggered), our `myGen`
-  // captured at scheduling time no longer matches the current generation,
-  // and this timeout is for a destroyed editor — bail silently.
+  // Timeout for the WaveSurfer decode. A previous attempt tonight replaced
+  // this with a progress-driven "stall" detector keyed off WaveSurfer's
+  // 'loading' event — reverted (2026-09-30): that event's behavior when
+  // WaveSurfer is bound to an existing <video> via the `media:` option
+  // (the video-kind case) couldn't be verified in this environment (no
+  // browser here), and it broke EVERY file, not just large ones — the
+  // event likely never fires in that mode, so the "stall" check fired
+  // unconditionally after its window regardless of whether decode was
+  // actually still progressing fine. Back to a plain fixed timeout, known
+  // to work; bumped to 60s (from the original 30s) as a more generous
+  // margin for a large-but-under-1GB file on a slow disk/network — files
+  // ABOVE 1GB never reach WaveSurfer at all now (see the size check
+  // above), which was the actual motivating case for wanting "no timeout".
+  // Generation guard unchanged: a subsequent ensureTrimEditor call (new
+  // file, or this same editor destroyed) invalidates `myGen`/
+  // `trimEditorFile` and this bails silently.
   setTimeout(async () => {
     if (myGen !== _trimEditorGen) return;
     if (decodeFired || trimEditorFile !== filePath) return;
@@ -3362,7 +3703,7 @@ async function ensureTrimEditor(filePath) {
     } catch (e) {
       appendLog('xtract-log', `✗ ffprobe duration also failed: ${e.message}`, 'error');
     }
-  }, 30_000);
+  }, 60_000);
   regions.on('region-updated', (r) => {
     if (!trimEditor || r !== trimEditor.region) return;
     syncTimeInputsFromRegion(r);
@@ -3606,11 +3947,22 @@ function destroyTrimEditorCleanup() {
   if (outPath) outPath.setAttribute('d', '');
 }
 
-function destroyTrimEditor() {
+// `nextFilePath`: the file about to be loaded (if any). Lets a deliberate
+// reload of the JUST-created preview-remux temp file (see ensureTrimEditor's
+// ws.on('error') handler) survive its OWN triggering call's cleanup pass —
+// without this, ensureTrimEditor(tempPath)'s own destroyTrimEditor() would
+// delete the very file it's about to load.
+function destroyTrimEditor(nextFilePath = null) {
   // Bump generation so any pending decode-timeout from the editor we're
   // about to tear down bails the moment it fires (instead of showing a
   // misleading "decode timed out" toast for a long-since-destroyed mount).
   _trimEditorGen++;
+  const keepingRemux = xtractPreviewRemuxTmpPath && nextFilePath === xtractPreviewRemuxTmpPath;
+  if (xtractPreviewRemuxTmpPath && !keepingRemux) {
+    window.api.xtract.cleanupPreviewRemux({ path: xtractPreviewRemuxTmpPath }).catch(() => {});
+    xtractPreviewRemuxTmpPath = null;
+  }
+  if (!keepingRemux) xtractPreviewRemuxAttempted = false;
   // Always release the loading lock here — ensureTrimEditor calls this at
   // its own start too and immediately re-locks, so there's no flicker; every
   // OTHER caller (clear file, switch to Image view) tears the editor down
@@ -3657,6 +4009,7 @@ function destroyTrimEditor() {
     [...waveEl.children].forEach(c => { if (c.tagName.toLowerCase() !== 'svg') c.remove(); });
     waveEl.classList.remove('is-ready');
     waveEl.classList.remove('has-error');
+    waveEl.classList.remove('too-large');
     waveEl.style.display = '';
   }
   if (videoEl) {
@@ -4411,7 +4764,7 @@ async function doSplitRun() {
       body:  `${r.files.length} track(s) saved`,
       kind:  r.failed?.length ? 'warn' : 'ok',
       ttl:   6000,
-      actions: [{
+      actions: window.api.isServer ? null : [{
         icon: 'folder-open',
         title: t('toast_open_folder') || 'Open folder',
         onClick: (close) => { window.api.shell.openFolder(r.outDir); close(); }
@@ -4484,7 +4837,7 @@ async function runAiSubsGenerate() {
       body:  r.path.split(/[\\/]/).pop(),
       kind:  'ok',
       ttl:   6000,
-      actions: [{
+      actions: window.api.isServer ? null : [{
         icon: 'folder-open',
         title: t('toast_open_folder') || 'Open folder',
         onClick: (close) => { window.api.shell.openFolder(r.path.replace(/[\\/][^\\/]+$/, '')); close(); }
@@ -4540,7 +4893,23 @@ function bindTrimEditorControls() {
   document.getElementById('trim-play-btn')?.addEventListener('click', () => {
     const r = trimEditor?.region;
     const ws = trimEditor?.ws;
-    if (!r || !ws) return;
+    if (!ws) {
+      // No WaveSurfer instance — the waveform/region selection was
+      // skipped for a very large file (ensureTrimEditor's size check).
+      // For video the native element is still fully loaded and playable
+      // (confirmed live: readyState HAVE_ENOUGH_DATA, no error — only
+      // the control was missing) — drive it directly instead of a no-op.
+      // Whole-file only, no region to bound playback to a selection.
+      const videoEl = document.getElementById('xtract-video-preview');
+      if (!videoEl || videoEl.classList.contains('hidden')) return; // audio kind: no fallback element exists
+      try {
+        if (videoEl.paused) videoEl.play(); else videoEl.pause();
+      } catch (e) {
+        appendLog('xtract-log', `Preview failed: ${e.message}`, 'error');
+      }
+      return;
+    }
+    if (!r) return;
     const btn = document.getElementById('trim-play-btn');
     try {
       if (ws.isPlaying && ws.isPlaying()) {
@@ -6347,8 +6716,17 @@ function applyAvailableFormatHints(maxHeight) {
 // the `wantVideo` flag (queue items pass it explicitly).
 async function previewMediaUrl(url, displayTitle, sourceLabel = '🔍 PREVIEW', wantVideo = null) {
   if (!url) return;
+  // Decide video vs audio BEFORE resolving — lets getStreamUrl ask yt-dlp for
+  // the right kind of format up front (bestaudio/best for audio: always a
+  // real single-URL format, unlike a muxed audio+video one which most
+  // modern YouTube videos no longer expose at all).
+  const formatRadio = document.querySelector('input[name="media-format"]:checked');
+  const fmt = formatRadio ? formatRadio.value : '';
+  const isVideoFormat = wantVideo !== null
+    ? wantVideo
+    : /^(video|mp4|mkv)/.test(fmt);
   appendLog('media-log', `🔍 Preview: resolving ${url}…`, 'info');
-  const r = await window.api.media.getStreamUrl(url);
+  const r = await window.api.media.getStreamUrl(url, isVideoFormat ? 'video' : 'audio');
   if (!r.ok || !r.url) {
     const reason = r.error || 'no stream URL';
     appendLog('media-log', `✗ Preview: ${reason}`, 'error');
@@ -6360,12 +6738,15 @@ async function previewMediaUrl(url, displayTitle, sourceLabel = '🔍 PREVIEW', 
     });
     return;
   }
-  // Decide video vs audio: explicit override > Media tab selection.
-  const formatRadio = document.querySelector('input[name="media-format"]:checked');
-  const fmt = formatRadio ? formatRadio.value : '';
-  const isVideoFormat = wantVideo !== null
-    ? wantVideo
-    : /^(video|mp4|mkv)/.test(fmt);
+  if (isVideoFormat && r.videoUnavailable) {
+    // No muxed audio+video stream exists for this URL (increasingly common
+    // on YouTube) — getStreamUrl degraded to an audio-only URL instead of
+    // failing outright. Play that rather than a dead end, but say why.
+    appendLog('media-log', '⚠ No combined audio+video stream for this URL — playing audio only', 'warn');
+    showToast({ title: t('preview_toast_error_title'), body: t('preview_video_unavailable_audio_only') || 'No combined video+audio stream available — playing audio only.', kind: 'warn', ttl: 7000 });
+    playInGlobalPlayer({ url: r.url, title: displayTitle || url, source: sourceLabel, id: url, isHls: false });
+    return;
+  }
   if (isVideoFormat) {
     openVideoPreview({ streamUrl: r.url, originalUrl: url, title: displayTitle || url });
   } else {
@@ -6780,9 +7161,14 @@ function bindLive() {
     previewBtn.disabled = true;
     appendLog('live-log', '🔍 Resolving stream URL…', 'info');
     try {
-      const r = await window.api.media.getStreamUrl(url);
+      const r = await window.api.media.getStreamUrl(url, 'video');
       if (!r.ok || !r.url) {
         appendLog('live-log', `✗ Preview: ${r.error || 'no stream URL'}`, 'error');
+        return;
+      }
+      if (r.videoUnavailable) {
+        appendLog('live-log', '⚠ No combined audio+video stream for this URL — playing audio only', 'warn');
+        playInGlobalPlayer({ url: r.url, title: url, source: '🔍 PREVIEW', id: url, isHls: false });
         return;
       }
       openVideoPreview({ streamUrl: r.url, originalUrl: url, title: url });
@@ -6868,7 +7254,11 @@ function showPlaybackError(url, detail) {
 // Quick heuristic: looks like a direct media file. Used to skip the yt-dlp
 // resolver round-trip for URLs that the browser can play natively.
 function isDirectMediaUrl(url) {
-  return /\.(mp3|aac|m4a|ogg|opus|wav|flac|mpga|mpeg|m3u8|mpd|ts|webm|mp4|mov)(\?|#|$)/i.test(url);
+  // mkv/avi/flv/wmv/m4v/oga were missing — any of FLUX's own downloaded/
+  // edited files in those formats fell through to the yt-dlp-resolve
+  // branch instead of playing natively (same list as package.json's
+  // fileAssociations, audio/video entries only).
+  return /\.(mp3|aac|m4a|ogg|oga|opus|wav|flac|mpga|mpeg|m3u8|mpd|ts|webm|mp4|m4v|mkv|mov|avi|flv|wmv)(\?|#|$)/i.test(url);
 }
 
 // Resolve a page URL (YouTube watch, podcast portal, etc.) to a direct
@@ -7125,7 +7515,7 @@ function renderDownloadsList() {
       </div>
       <div class="dl-item-actions">
         ${d.path && d.status === 'done' && d.kind !== 'torrent' ? `<button class="btn-icon" data-action="play" data-id="${d.id}" data-lucide-icon="play" title="${t('downloads_play')}"></button>` : ''}
-        ${d.path && d.status === 'done' ? `<button class="btn-icon" data-action="folder" data-id="${d.id}" data-lucide-icon="folder-open" title="${t('downloads_open_folder')}"></button>` : ''}
+        ${d.path && d.status === 'done' && !window.api.isServer ? `<button class="btn-icon" data-action="folder" data-id="${d.id}" data-lucide-icon="folder-open" title="${t('downloads_open_folder')}"></button>` : ''}
         ${d.path && d.status === 'done' && d.kind === 'torrent' && config.sendto_enabled ? `<button class="btn-icon" data-action="sendto" data-id="${d.id}" data-lucide-icon="send" title="${t('downloads_sendto') || 'Invia al client torrent'}"></button>` : ''}
         <button class="btn-icon" data-action="remove" data-id="${d.id}" data-lucide-icon="x" title="${t('downloads_remove')}"></button>
       </div>
@@ -7215,6 +7605,19 @@ async function onDownloadAction(action, id) {
     const ext = e.path.split('.').pop().toLowerCase();
     if (IMAGE_EXTS.has(ext)) {
       openImagePreviewModal(e.path);
+      return;
+    }
+    // Audio/video: the in-app global player already handles these fine
+    // (same mechanism the Playlist uses) — shell.openPath (OS default app)
+    // is only the right call for formats FLUX itself can't play, and is the
+    // ONLY option left once window.api.isServer (no OS to hand a path to).
+    if (AUDIO_PICK_EXTS.includes(ext) || VIDEO_PICK_EXTS.includes(ext)) {
+      playInGlobalPlayer({ url: localFileURL(e.path), title: e.path.split(/[\\/]/).pop(), source: 'download', id: 'dl_' + e.id, isHls: false });
+      document.getElementById('downloads-modal').classList.add('hidden');
+      return;
+    }
+    if (window.api.isServer) {
+      showToast({ title: t('downloads_play_failed_title') || 'Cannot play file', body: e.path, kind: 'err', ttl: 6000 });
       return;
     }
     try {
@@ -7503,7 +7906,9 @@ function showToast({ title, body, kind = 'ok', ttl = 5000, action = null, action
 // toasts. Both routes through the existing IPC bridge — openPath launches
 // the OS default app, revealInFolder highlights the file in Explorer/Finder.
 function fileToastActions(filePath) {
-  if (!filePath) return null;
+  // Both actions hand the file to the OS (default app / file manager) —
+  // meaningless on a headless server with no desktop of its own.
+  if (!filePath || window.api.isServer) return null;
   return [
     { icon: 'external-link', title: t('toast_open_file')   || 'Open file',
       onClick: (close) => { window.api.shell.openPath(filePath);       close(); } },
@@ -8103,8 +8508,7 @@ function renderSpotifyTable() {
     b.addEventListener('click', () => {
       const tr = spotifyResolved.tracks[parseInt(b.dataset.idx, 10)];
       if (!tr?.path) return;
-      const fileUrl = 'file:///' + String(tr.path).replace(/\\/g, '/').replace(/^\/+/, '');
-      playInGlobalPlayer({ url: fileUrl, title: `${tr.artist} - ${tr.title}`, source: 'download', id: 'sp_' + b.dataset.idx });
+      playInGlobalPlayer({ url: localFileURL(tr.path), title: `${tr.artist} - ${tr.title}`, source: 'download', id: 'sp_' + b.dataset.idx });
     }));
 }
 
@@ -8247,13 +8651,11 @@ function bindTagEditor() {
   document.getElementById('tag-file-play-btn').addEventListener('click', () => {
     const f = currentTagFile();
     if (!f) return;
-    // Play in the global top-bar player (file:// URL, CSP allows it)
-    const fileUrl = 'file:///' + f.path.replace(/\\/g, '/').replace(/^\/+/, '');
     const displayTitle = f.tags.title
       ? (f.tags.artist ? `${f.tags.artist} — ${f.tags.title}` : f.tags.title)
       : f.name;
     playInGlobalPlayer({
-      url: fileUrl,
+      url: localFileURL(f.path),
       title: displayTitle,
       source: '🏷️ TAG EDITOR · ' + (f.format || ''),
       id: f.path,
@@ -8977,7 +9379,7 @@ async function runImageOp(op) {
       // manager. Each entry is `{ from, to }` (the main-side IPC returns
       // objects, not bare paths) — pass `.to` (the SAVED file) so the
       // OS opens the destination folder, not the source folder.
-      actions: succArr[0] ? [{
+      actions: succArr[0] && !window.api.isServer ? [{
         icon: 'folder-open',
         title: t('toast_open_folder') || 'Open folder',
         onClick: (close) => { window.api.shell.revealInFolder(succArr[0].to || succArr[0]); close(); }
@@ -9248,7 +9650,7 @@ async function runImageOrganize() {
       kind:  (r.errors && r.errors.length) ? 'warn' : 'ok', ttl: 5000,
       // Files land across {year}/{month} subfolders, so reveal the destination
       // ROOT — from there the user can browse the organized tree.
-      actions: r.moved ? [{
+      actions: r.moved && !window.api.isServer ? [{
         icon: 'folder-open', title: t('toast_open_folder') || 'Open folder',
         onClick: (close) => { window.api.shell.openPath(root); close(); }
       }] : null
@@ -13252,9 +13654,13 @@ async function renderHistory() {
     // Torrent entries got a "play" button by mistake — a .torrent/.magnet
     // file isn't playable. Offer "send to client" instead when configured.
     const isTorrent = h.kind === 'torrent';
+    // folder hands the file to the OS file manager — meaningless on a
+    // headless server. play routes audio/video/images through the in-app
+    // player/preview there instead (see the click handler below), so it
+    // stays shown.
     const actions = h.path && h.ok
       ? `${!isTorrent ? `<button class="btn-icon" data-play="${esc(h.path)}" data-lucide-icon="play" title="${esc(t('downloads_play'))}"></button>` : ''}
-         <button class="btn-icon" data-folder="${esc(h.path)}" data-lucide-icon="folder" title="${esc(t('downloads_open_folder'))}"></button>
+         ${!window.api.isServer ? `<button class="btn-icon" data-folder="${esc(h.path)}" data-lucide-icon="folder" title="${esc(t('downloads_open_folder'))}"></button>` : ''}
          ${isTorrent && config.sendto_enabled ? `<button class="btn-icon" data-sendto="${esc(h.path)}" data-sendto-name="${esc(h.name || '')}" data-lucide-icon="send" title="${esc(t('downloads_sendto') || 'Invia al client torrent')}"></button>` : ''}`
       : '';
     tr.innerHTML = `
@@ -13277,6 +13683,16 @@ async function renderHistory() {
       if (playBtn) {
         const p = playBtn.dataset.play;
         if (!p) return;
+        const ext = p.split('.').pop().toLowerCase();
+        if (IMAGE_EXTS.has(ext)) { openImagePreviewModal(p); return; }
+        if (AUDIO_PICK_EXTS.includes(ext) || VIDEO_PICK_EXTS.includes(ext)) {
+          playInGlobalPlayer({ url: localFileURL(p), title: p.split(/[\\/]/).pop(), source: 'download', id: 'hist_' + p, isHls: false });
+          return;
+        }
+        if (window.api.isServer) {
+          showToast({ title: t('downloads_play_failed_title') || 'Cannot play file', body: p, kind: 'err', ttl: 6000 });
+          return;
+        }
         window.api.shell.openPath(p).then(r => {
           if (r) console.error('openPath failed:', r);
         });
@@ -13820,6 +14236,16 @@ async function ensureModuleBinaries(moduleId) {
   const mod = (reg.modules || []).find(m => m.id === moduleId);
   if (!mod || mod.id === 'core' || !(mod.binaries || []).length) return true;
   return ensureBinaries(mod.binaries, mod.name);
+}
+
+// Elements that only make sense on a real desktop OS (open-with-default-app,
+// reveal-in-file-manager, browser/mic screen capture, self-update into a
+// running install) — hidden wholesale in the server profile rather than
+// left clickable-then-failing. Mirrors the existing [data-needs-module]
+// convention below, just keyed on window.api.isServer instead of config.
+function applyDesktopOnlyHiding() {
+  if (!window.api.isServer) return;
+  document.querySelectorAll('[data-desktop-only]').forEach(el => el.classList.add('hidden'));
 }
 
 async function applyModuleVisibility() {
@@ -14782,7 +15208,7 @@ function appendLog(id, text, type = 'log') {
     line.className = `log-line ${type}`;
     // Strip any leading status glyph the caller wrote; the icon now comes from a
     // lucide glyph chosen by `type`, so the activity logs match the rest of the UI.
-    const clean = String(text).replace(/^[✓✗✘✔▶⏹⏺⏸⬇↑↓🔍•]\s+/u, '');
+    const clean = String(text).replace(/^[✓✗✘✔▶⏹⏺⏸⬇↑↓🔍•⚠]\s+/u, '');
     const LOG_ICON = { ok: 'check', error: 'x', warn: 'triangle-alert', info: 'info' };
     const icon = LOG_ICON[type];
     if (icon) {

@@ -2267,6 +2267,25 @@ body.img-picking .img-live-canvas { cursor: crosshair; }
   color: var(--text-dim); font-size: 12px; pointer-events: none;
   text-align: center; padding: 0 12px;
 }
+/* File-too-large case specifically (ensureTrimEditor's >1 GB skip) — its
+   own shorter empty-state box. Scoped to the EXTRA `.too-large` class
+   (never on its own, always alongside `.has-error`) so every OTHER
+   has-error case (no audio track, decode timeout/stall, generic format
+   error) keeps the default 60px box above untouched. The MESSAGE itself
+   is a real translatable DOM node (ensureTrimEditor inserts a
+   data-i18n'd element) instead of this CSS ::before — unlike the
+   generic message above (pre-existing, hardcoded English, never
+   i18n'd), this one was specifically asked to be translated, and CSS
+   `content` strings can't go through the app's i18n system. The
+   ::before here is blanked out so it doesn't double up with that node. */
+.trim-waveform.has-error.too-large { min-height: 30px; }
+.trim-waveform.has-error.too-large::before { content: ''; }
+.trim-waveform-too-large-msg {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); font-size: 12px; pointer-events: none;
+  text-align: center; padding: 0 12px;
+}
 
 /* Whole tool panel locked while ensureTrimEditor's WaveSurfer decode (or, for
    GIFs, the duration probe) is still in flight for a freshly-picked file —
@@ -3030,16 +3049,29 @@ body[data-theme="light"] .results-table tbody tr:hover { background: rgba(0,0,0,
 .activity-log { display: none; }
 body.show-activity-logs .activity-log { display: block; }
 .activity-log {
+  /* Gave up pinning it to any edge (fixed/absolute/sticky all failed live
+     in ways not reproducible in this sandbox — see tasks.md). Back to a
+     plain card in normal flow, just with a title so it reads as its own
+     section instead of a stray box. */
+  margin-top: 30px;
+  height: 110px;
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 0;
   padding: 14px;
-  max-height: 220px;
   overflow-y: auto;
   font-size: 13px;
   line-height: 1.7;
   color: var(--text-dim);
   box-shadow: var(--shadow-card);
+}
+.activity-log::before {
+  content: 'Log attività';
+  display: block;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 8px;
 }
 .activity-log .log-placeholder {
   color: var(--text-muted);
@@ -4581,7 +4613,13 @@ body[data-theme="light"] .queue-fmt-tag { background: rgba(163,122,0,0.10); }
 /* Floats in the box's own corner instead of sitting inline in the flex title
    row (was a bordered 28px square that read as a boxed button, not a close
    affordance — tasks.md #30 follow-up). */
-.downloads-modal-x {
+/* Compound selector (.btn-icon.downloads-modal-x), not just .downloads-modal-x
+   — .btn-icon's own background/border/padding sits LATER in this file and,
+   at equal specificity, was winning the cascade regardless of source order
+   here, silently defeating this override (grey background stuck on, plus
+   an off-center icon from .btn-icon's asymmetric padding inside this fixed
+   32×32 box). */
+.btn-icon.downloads-modal-x {
   position: absolute;
   top: 5px;
   right: 5px;
@@ -4592,7 +4630,7 @@ body[data-theme="light"] .queue-fmt-tag { background: rgba(163,122,0,0.10); }
   padding: 5px;
 }
 .downloads-modal-x svg { width: 22px; height: 22px; }
-.downloads-modal-x:hover { color: var(--accent); }
+.btn-icon.downloads-modal-x:hover:not(:disabled) { color: var(--accent); }
 
 /* Downloads tracker list (inside #downloads-modal) */
 .dl-item {
@@ -5827,6 +5865,32 @@ body[data-theme="light"] .files-grow:hover { background: rgba(0,0,0,0.03); }
   color: var(--accent); margin-left: 12px;
 }
 .remote-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+
+/* Torrent tab: Subscriptions card, sits above the search input. Head row
+   (title+help left, Add button right) and a 3-column grid of subscription
+   items below — #subs-list keeps the shared .remote-list item styling but
+   overrides its layout to a grid (ID beats the .remote-list class rule
+   above regardless of source order). */
+.subs-card { margin-bottom: 18px; }
+.subs-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.subs-card-head-text { min-width: 0; }
+.subs-card-head .xtract-card-title { margin: 0; }
+.subs-card-head .xtract-card-help { margin: 4px 0 0; }
+.subs-add-btn { flex-shrink: 0; }
+#subs-list.subs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+#subs-list.subs-grid .remote-list-item { align-items: flex-start; flex-direction: column; gap: 6px; }
+#subs-list.subs-grid .remote-list-empty { grid-column: 1 / -1; }
+@media (max-width: 900px) {
+  #subs-list.subs-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .subs-card-head { flex-direction: column; }
+  #subs-list.subs-grid { grid-template-columns: 1fr; }
+}
 .remote-list-item {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--bg3); border: 1px solid var(--border); padding: 8px 12px; font-size: 13px;

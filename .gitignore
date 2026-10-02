@@ -10,6 +10,12 @@ build-temp/
 # NOTE: renderer/vendor/ (hls, wavesurfer, pdfjs, fabric, lucide) IS committed.
 /vendor/
 
+# Build-time-only tooling fetched by build-linux.sh (appimagetool), never shipped.
+/build/.tools/
+
+# Docker deployment secrets (FLUX_ADMIN_PASSWORD) — never commit, copy from .env.example.
+/.env
+
 # Logs
 *.log
 

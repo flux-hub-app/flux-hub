@@ -159,6 +159,7 @@
   "xtract_av_reset_all": "Сбросить все изменения",
   "xtract_av_save": "Сохранить",
   "xtract_av_save_modal_title": "Сохранить",
+  "xtract_waveform_too_large": "Файл больше 1 ГБ — предпросмотр волновой формы недоступен, используйте поля времени ниже для обрезки",
   "xtract_normalize_enable": "Включить нормализацию",
   "xtract_normalize_target": "Цель (LUFS)",
   "xtract_image_no_edits": "Нечего сохранять",

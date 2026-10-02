@@ -129,6 +129,75 @@ for a in "${artefacts[@]}"; do
     echo -e "      ${GREEN}produced: $(basename "$a")${NC}"
 done
 
+# ── AppImage update info + zsync ────────────────────────────────────
+# electron-builder's own AppImage target has no support for the classic
+# AppImageUpdate/zsync mechanism (it only writes app-update.yml for its own
+# electron-updater flow, already wired in main.js) — the AppImage catalog
+# (appimage.github.io) flags that as a warning on auto-discovered releases.
+# Best-effort post-processing with the real appimagetool: re-embeds update
+# info into the AppImage electron-builder just built, and produces the
+# matching .zsync file if zsyncmake is available. Every failure mode here
+# is non-fatal and leaves the already-working AppImage untouched — same
+# principle as the .deb/xz lesson: an optional step must never wreck a good
+# artifact or abort the whole build.
+shopt -s nullglob 2>/dev/null
+appimage_matches=("$DIST_DIR"/*.AppImage)
+shopt -u nullglob 2>/dev/null
+if [ "${#appimage_matches[@]}" -gt 0 ] && ! command -v file >/dev/null 2>&1; then
+    echo -e "${YELLOW}Embedding AppImage update info...${NC}"
+    echo -e "      ${DARKGRAY}'file' command not found — appimagetool requires it and cannot run without it.${NC}"
+    echo -e "      ${DARKGRAY}Skipping (non-fatal, original AppImage kept as-is). Install it to enable this step:${NC}"
+    echo -e "      ${DARKGRAY}  Debian/Ubuntu: sudo apt install file   |   Fedora: sudo dnf install file   |   Arch: sudo pacman -S file${NC}"
+elif [ "${#appimage_matches[@]}" -gt 0 ]; then
+    appimage_file="${appimage_matches[0]}"
+    echo -e "${YELLOW}Embedding AppImage update info...${NC}"
+    APPIMAGETOOL_DIR="$SCRIPT_DIR/.tools"
+    APPIMAGETOOL="$APPIMAGETOOL_DIR/appimagetool-x86_64.AppImage"
+    mkdir -p "$APPIMAGETOOL_DIR"
+    if [ ! -x "$APPIMAGETOOL" ]; then
+        echo -e "      ${DARKGRAY}Fetching appimagetool (build-time only, cached in build/.tools/)...${NC}"
+        if ! curl -fsSL -o "$APPIMAGETOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"; then
+            rm -f "$APPIMAGETOOL"
+            echo -e "      ${DARKGRAY}Could not download appimagetool (offline?) — skipping, original AppImage kept as-is.${NC}"
+        fi
+        if [ -f "$APPIMAGETOOL" ]; then
+            chmod +x "$APPIMAGETOOL"
+        fi
+    fi
+    if [ -x "$APPIMAGETOOL" ]; then
+        work="$(mktemp -d)"
+        # --appimage-extract-and-run is appimagetool's OWN no-FUSE fallback
+        # (needed to run appimagetool itself in containers without /dev/fuse);
+        # --appimage-extract on the FLUX AppImage is the separate, unrelated
+        # no-FUSE extraction of ITS contents into ./squashfs-root — that
+        # becomes the AppDir appimagetool repackages from.
+        (cd "$work" && "$appimage_file" --appimage-extract >/dev/null 2>&1) || true
+        if [ -d "$work/squashfs-root" ]; then
+            UPDATE_INFO="gh-releases-zsync|flux-hub-app|flux-hub|latest|FLUX*Hub-*.AppImage.zsync"
+            new_appimage="$work/repackaged.AppImage"
+            if ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run -u "$UPDATE_INFO" \
+                "$work/squashfs-root" "$new_appimage" >"$work/appimagetool.log" 2>&1 \
+                && [ -s "$new_appimage" ]; then
+                chmod +x "$new_appimage"
+                mv -f "$new_appimage" "$appimage_file"
+                echo -e "      ${GREEN}Update info embedded.${NC}"
+                if [ -f "$work/repackaged.AppImage.zsync" ]; then
+                    mv -f "$work/repackaged.AppImage.zsync" "$appimage_file.zsync"
+                    echo -e "      ${GREEN}$(basename "$appimage_file.zsync") generated.${NC}"
+                else
+                    echo -e "      ${DARKGRAY}zsyncmake not found (apt package: zsync) — .zsync not generated, update info was still embedded.${NC}"
+                fi
+            else
+                echo -e "      ${DARKGRAY}appimagetool repackaging failed — original AppImage from electron-builder left untouched. Log:${NC}"
+                sed 's/^/      /' "$work/appimagetool.log" 2>/dev/null || true
+            fi
+        else
+            echo -e "      ${DARKGRAY}Could not extract the AppImage for repackaging — skipping, original kept as-is.${NC}"
+        fi
+        rm -rf "$work"
+    fi
+fi
+
 echo
 echo -e "${GREEN}============================================================${NC}"
 echo -e "${GREEN}  BUILD COMPLETE${NC}"

@@ -56,7 +56,12 @@ const EVERMEET_API = 'https://evermeet.cx/ffmpeg/info';
 const WHISPER_RELEASES = 'https://api.github.com/repos/sjoerdteunisse/whisper.cpp/releases/latest';
 const WHISPER_MODEL_BASE_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
-const YTDLP_ASSET = { win32: 'yt-dlp.exe', darwin: 'yt-dlp_macos', linux: 'yt-dlp' };
+// linux: 'yt-dlp_linux' (self-contained, no runtime deps) rather than the
+// plain 'yt-dlp' zipapp — that one needs a system python3 (shebang
+// `#!/usr/bin/env python3`), which most desktop distros happen to have but
+// a minimal Docker image (node:*-slim) does not, and FLUX otherwise never
+// requires Python as a runtime dependency.
+const YTDLP_ASSET = { win32: 'yt-dlp.exe', darwin: 'yt-dlp_macos', linux: 'yt-dlp_linux' };
 const CHROMA_PLATFORM = { win32: 'windows', darwin: 'macos', linux: 'linux' };
 const CHROMA_ARCH     = { x64: 'x86_64', arm64: 'arm64' };
 // CPU-only asset per platform:arch — this source doesn't publish linux-arm64,

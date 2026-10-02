@@ -48,7 +48,7 @@ const { loadSchedule, saveSchedule } = require('./engine/schedule');
 const {
   loadQueue, saveQueue, runQueue, runMediaDownloadRetry,
   activeMediaProcs, isStopRequested, setStopRequested, killProcessTree,
-  isDrmHost, getStreamUrl, probeMedia,
+  isDrmHost, getStreamUrl, resolveStreamUrl, probeMedia,
 } = require('./engine/queue');
 const {
   runTorrentSearch, detectJackettOrProwlarr, listTorznabIndexers, saveTorrentItem,
@@ -168,13 +168,13 @@ function isAuthed(req) {
   return true;
 }
 
-function readRequestBody(req) {
+function readRequestBody(req, maxBytes = 10 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let data = '';
     let size = 0;
     req.on('data', c => {
       size += c.length;
-      if (size > 10 * 1024 * 1024) { req.destroy(); reject(new Error('request body too large')); return; }
+      if (size > maxBytes) { req.destroy(); reject(new Error('request body too large')); return; }
       data += c;
     });
     req.on('end', () => resolve(data));
@@ -182,8 +182,13 @@ function readRequestBody(req) {
   });
 }
 
-async function readJSONBody(req) {
-  const raw = await readRequestBody(req);
+// `maxBytes` override: images:applyPipeline's `inputData` (a flattened
+// annotate-canvas PNG, base64-encoded — +33% over raw bytes) can exceed the
+// 10MB default for a high-resolution photo. Bumped per-call where that
+// route is wired below, not globally, so every other JSON route keeps the
+// tighter default.
+async function readJSONBody(req, maxBytes) {
+  const raw = await readRequestBody(req, maxBytes);
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { throw new Error('invalid JSON body'); }
 }
@@ -366,7 +371,11 @@ on('POST', '/api/media/probe', async (req, res) => {
 });
 on('POST', '/api/media/getStreamUrl', async (req, res) => {
   const body = await readJSONBody(req);
-  sendJSON(res, 200, await getStreamUrl(body.url));
+  sendJSON(res, 200, await getStreamUrl(body.url, body.kind));
+});
+on('POST', '/api/media/resolveStreamUrl', async (req, res) => {
+  const body = await readJSONBody(req);
+  sendJSON(res, 200, await resolveStreamUrl(body.url, body.kind));
 });
 on('POST', '/api/media/stop', async (req, res) => {
   let killed = 0;
@@ -385,6 +394,85 @@ on('POST', '/api/media/stop', async (req, res) => {
     }, 500);
   }
   sendJSON(res, 200, { ok: true, killed });
+});
+
+// Serves a local file over HTTP with Range support — the browser-side
+// counterpart of renderer.js's localFileURL() when window.api.isServer,
+// covering every local-file preview (Playlist play, Xtract waveform/video/
+// image editors, GIF/PDF.js previews, thumbnails) that on desktop instead
+// points straight at a `file:///` URL, which a browser can't fetch
+// cross-origin from an http:// page. Same trust model as GET /api/browse
+// (already unrestricted filesystem navigation, gated only by the one admin
+// login) — no separate path allowlist here either, a file can be anywhere
+// on disk just like on desktop.
+const MEDIA_MIME_TYPES = {
+  '.mp3': 'audio/mpeg', '.aac': 'audio/aac', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.wav': 'audio/wav', '.flac': 'audio/flac',
+  '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mkv': 'video/x-matroska', '.webm': 'video/webm',
+  '.mov': 'video/quicktime', '.avi': 'video/x-msvideo',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.bmp': 'image/bmp', '.pdf': 'application/pdf',
+};
+const MAX_OPEN_RANGE_BYTES = 8 * 1024 * 1024; // 8 MB per uncapped-range chunk
+on('GET', '/api/media/file', (req, res, params, searchParams) => {
+  const p = searchParams.get('path');
+  if (!p) return sendJSON(res, 400, { ok: false, error: 'path required' });
+  let stat;
+  try { stat = fs.statSync(p); } catch { return sendJSON(res, 404, { ok: false, error: 'not found' }); }
+  if (!stat.isFile()) return sendJSON(res, 404, { ok: false, error: 'not found' });
+  const type = MEDIA_MIME_TYPES[path.extname(p).toLowerCase()] || 'application/octet-stream';
+  const range = req.headers.range;
+  const m = range && /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (m) {
+    let start, end;
+    if (m[1] === '' && m[2] !== '') {
+      // Suffix range (RFC 7233): "bytes=-N" means the LAST N bytes, not
+      // "start at byte 0" — some players probe the tail of a file first
+      // (e.g. an MP4 whose moov atom sits at the end rather than the
+      // front) to read metadata before the rest. Treating m[1]==='' as
+      // start=0 here (the previous bug) served the FIRST N bytes instead,
+      // handing back garbage for exactly that probe — plausible root
+      // cause of "nothing plays" specifically on large files, where this
+      // kind of end-of-file metadata probe is more likely to happen.
+      const suffixLen = parseInt(m[2], 10);
+      start = Math.max(0, stat.size - suffixLen);
+      end = stat.size - 1;
+    } else {
+      start = m[1] ? parseInt(m[1], 10) : 0;
+      if (m[2]) {
+        end = parseInt(m[2], 10);
+      } else {
+        // Open-ended ("bytes=N-", e.g. a <video>'s very first request)
+        // means "the rest of the resource" per spec — fine for a normal
+        // file, but for a multi-GB one it commits to streaming the WHOLE
+        // remainder in a single response. On real (especially NAS-backed)
+        // storage that can take long enough that the player sees no
+        // progress and just sits there — black preview, play a no-op,
+        // with no clean error to react to (found testing against a real
+        // 4+ GB file: the same open-ended request took 16+ seconds for
+        // ~4 GB over this container's own /tmp, already slower than a
+        // player's patience, with real NAS storage likely worse). Cap it
+        // to a reasonable chunk instead — the player sees a fast partial
+        // response and simply issues a follow-up range request for more,
+        // the same incremental buffering it already does for any seek;
+        // this is standard practice for real-world media servers on large
+        // files, not a workaround specific to this bug.
+        end = Math.min(stat.size - 1, start + MAX_OPEN_RANGE_BYTES - 1);
+      }
+    }
+    if (Number.isNaN(start) || Number.isNaN(end) || start > end || end >= stat.size) {
+      res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+      return res.end();
+    }
+    res.writeHead(206, {
+      'Content-Type': type, 'Accept-Ranges': 'bytes',
+      'Content-Range': `bytes ${start}-${end}/${stat.size}`, 'Content-Length': end - start + 1,
+    });
+    fs.createReadStream(p, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': stat.size });
+    fs.createReadStream(p).pipe(res);
+  }
 });
 
 // ─── ROUTES: SEND-TO-CLIENT / SEND-TO-USENET ───────────────────────────────
@@ -568,7 +656,7 @@ on('GET', '/api/modules', (req, res) => {
   // locked badge instead of a toggle. Absent on desktop's own
   // modules:registry IPC handler (plain loadModuleRegistry(), no such
   // field), so that UI branch never triggers there.
-  sendJSON(res, 200, { modules: reg.modules || [], binaries: reg.binaries || {}, binaryStatus, serverModuleIds: SERVER_MODULE_IDS });
+  sendJSON(res, 200, { modules: reg.modules || [], binaries: reg.binaries || {}, binaryStatus, serverModuleIds: SERVER_MODULE_IDS, tabBinaries: reg.tabBinaries || {} });
 });
 
 // ─── ROUTES: SERVER FILE PICKER (Fase G, Step 2) ────────────────────────────
@@ -584,6 +672,15 @@ on('GET', '/api/modules', (req, res) => {
 // picking a file from another share mounted into the same container.
 on('GET', '/api/browse', (req, res, params, query) => {
   const dir = query.get('path') || DOWNLOAD_DIR;
+  // Optional context filter (e.g. Xtract Audio/Video/Image passing its own
+  // extension whitelist, same `filters` shape the native Electron dialog
+  // already took) — comma-separated, no dots, case-insensitive. '*'/absent
+  // means no filtering. Folders are never filtered — you still need to be
+  // able to navigate into one even if none of its contents match yet.
+  const extsParam = query.get('exts');
+  const exts = extsParam && extsParam !== '*'
+    ? new Set(extsParam.toLowerCase().split(',').map(e => e.trim()).filter(Boolean))
+    : null;
   try {
     const st = fs.statSync(dir);
     if (!st.isDirectory()) return sendJSON(res, 200, { ok: false, error: 'Not a directory' });
@@ -594,6 +691,7 @@ on('GET', '/api/browse', (req, res, params, query) => {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) dirs.push({ name: e.name, path: full });
       else if (e.isFile()) {
+        if (exts && !exts.has(path.extname(e.name).slice(1).toLowerCase())) continue;
         let size = 0; try { size = fs.statSync(full).size; } catch {}
         files.push({ name: e.name, path: full, size });
       }

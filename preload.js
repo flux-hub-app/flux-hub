@@ -185,7 +185,7 @@ contextBridge.exposeInMainWorld('api', {
   media: {
     download:         payload => ipcRenderer.invoke('media:download', payload),
     probe:            url     => ipcRenderer.invoke('media:probe', url),
-    getStreamUrl:     url     => ipcRenderer.invoke('media:getStreamUrl', url),
+    getStreamUrl:     (url, kind) => ipcRenderer.invoke('media:getStreamUrl', url, kind),
     resolveStreamUrl: payload => ipcRenderer.invoke('media:resolveStreamUrl', payload),
     // Related/recommended items for a URL ("you might also like" panel)
     getRelated:       payload => ipcRenderer.invoke('media:related', payload),
@@ -260,6 +260,9 @@ contextBridge.exposeInMainWorld('api', {
     meta:        payload    => ipcRenderer.invoke('xtract:meta',      payload),
     normalize:   payload    => ipcRenderer.invoke('xtract:normalize', payload),
     applyPipeline: payload  => ipcRenderer.invoke('xtract:applyPipeline', payload),
+    previewRemux: payload   => ipcRenderer.invoke('xtract:previewRemux', payload),
+    cancelPreviewRemux: payload => ipcRenderer.invoke('xtract:cancelPreviewRemux', payload),
+    cleanupPreviewRemux: payload => ipcRenderer.invoke('xtract:cleanupPreviewRemux', payload),
     onProgress:  cb         => ipcRenderer.on('xtract:progress', (_, d) => cb(d))
   },
   ai: {

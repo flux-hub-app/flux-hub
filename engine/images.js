@@ -24,12 +24,21 @@ const { safeSend: busSafeSend } = require('./bus');
 // Loaded lazily so a missing sharp install (e.g. ARM/Mac dev box without
 // rebuild) only fails when the user opens Image Editor, not at boot.
 let _sharp = null;
+let _sharpLoadError = null;
 function getSharp() {
   if (_sharp === null) {
     try { _sharp = require('sharp'); }
-    catch (e) { log('ERROR', `sharp load failed: ${e.message}`); _sharp = false; }
+    catch (e) { log('ERROR', `sharp load failed: ${e.message}`); _sharp = false; _sharpLoadError = e.message; }
   }
   return _sharp || null;
+}
+// The real reason (native binding mismatch, missing shared lib, etc.) was
+// only ever logged server-side — every `{ok:false, error:'sharp not
+// available'}` the client actually saw dropped it, making "sharp not
+// available" undiagnosable without separately checking server logs. Now
+// included directly in the error every caller already returns.
+function sharpNotAvailableMsg() {
+  return _sharpLoadError ? `sharp not available: ${_sharpLoadError}` : 'sharp not available';
 }
 
 // Single supported-formats set used by the loader + listing. Sharp handles
@@ -101,7 +110,7 @@ async function imagesThumbnail({ input, maxSize = 96 }) {
   // 96-px JPEG thumbnail returned as a base64 data URI for the file list.
   // Cheap: sharp's resize is sub-millisecond per image even at full res.
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   try {
     const buf = await sharp(input).rotate().resize(maxSize, maxSize, { fit: 'cover' }).jpeg({ quality: 70 }).toBuffer();
     return { ok: true, dataUri: 'data:image/jpeg;base64,' + buf.toString('base64') };
@@ -149,7 +158,7 @@ function imagesRename({ files, pattern, start }) {
 
 async function imagesConvert({ files, format, quality, overwrite, outputFolder }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   const out = [];
   const fails = [];
   const q = Math.max(1, Math.min(100, parseInt(quality, 10) || 85));
@@ -178,7 +187,7 @@ async function imagesConvert({ files, format, quality, overwrite, outputFolder }
 
 async function imagesResize({ files, maxWidth, maxHeight, scalePct, overwrite, outputFolder }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   const out = [];
   const fails = [];
   const mw = parseInt(maxWidth,  10) || 0;
@@ -235,7 +244,7 @@ async function imagesResize({ files, maxWidth, maxHeight, scalePct, overwrite, o
 
 async function imagesStripExif({ files, overwrite, outputFolder }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   const out = [];
   const fails = [];
   for (const f of files) {
@@ -256,7 +265,7 @@ async function imagesStripExif({ files, overwrite, outputFolder }) {
 
 async function imagesAutoRotate({ files, overwrite, outputFolder }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   const out = [];
   const fails = [];
   for (const f of files) {
@@ -277,7 +286,7 @@ async function imagesAutoRotate({ files, overwrite, outputFolder }) {
 
 async function imagesHeicToJpg({ files, quality, outputFolder }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   const out = [];
   const fails = [];
   const q = Math.max(1, Math.min(100, parseInt(quality, 10) || 92));
@@ -312,7 +321,7 @@ function pickOutFormat(input, requested) {
 // Single-image crop (XTRACT > Image). Coordinates are pixels in the source.
 async function imagesCrop({ input, x, y, width, height, output, format }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   try {
     const { toFmt, outExt } = pickOutFormat(input, format);
     const target = output || input.replace(/\.[^.]+$/, '-crop.' + outExt);
@@ -334,7 +343,7 @@ async function imagesCrop({ input, x, y, width, height, output, format }) {
 // mapped to 0-255) of `from` is rewritten to `to`. Alpha is preserved.
 async function imagesReplaceColor({ input, from, to, tolerance, output }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   try {
     const hex = h => { h = String(h || '').replace('#', ''); return [parseInt(h.slice(0, 2), 16) || 0, parseInt(h.slice(2, 4), 16) || 0, parseInt(h.slice(4, 6), 16) || 0]; };
     const [fr, fg, fb] = hex(from);
@@ -366,7 +375,7 @@ async function imagesReplaceColor({ input, from, to, tolerance, output }) {
 // tracked in the roadmap.
 async function imagesRemoveBgColor({ input, color, tolerance, output }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   try {
     const hex = h => { h = String(h || '').replace('#', ''); return [parseInt(h.slice(0, 2), 16) || 0, parseInt(h.slice(2, 4), 16) || 0, parseInt(h.slice(4, 6), 16) || 0]; };
     const [cr, cg, cb] = hex(color);
@@ -409,7 +418,7 @@ async function imagesApplyEffects({
   grayscale, sepia, invert
 }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   try {
     // Normalise inputs — accept loose strings/numbers from the renderer.
     const b = Number(brightness ?? 100) / 100;     // 1.0 = no change
@@ -458,7 +467,7 @@ async function imagesApplyEffects({
 // Recipes are copies of the single-op handlers above — keep them in sync.
 async function imagesApplyPipeline({ input, inputData, edits = {}, outputName, outputDir }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   try {
     const hex = h => { h = String(h || '').replace('#', ''); return [parseInt(h.slice(0, 2), 16) || 0, parseInt(h.slice(2, 4), 16) || 0, parseInt(h.slice(4, 6), 16) || 0]; };
     const steps = [];
@@ -571,7 +580,7 @@ async function imagesWatermark({
   position = 'br', padding = 24, shadow = true, overwrite, outputFolder
 }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   if (!text) return { ok: false, error: 'text required' };
   const safeText = String(text).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const op = Math.max(0, Math.min(1, Number(opacity)));
@@ -621,7 +630,7 @@ async function imagesWatermark({
 // quality; PNG falls back to compressionLevel sweep instead.
 async function imagesCompressToSize({ files, targetKb, format, overwrite, outputFolder }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   const out = [];
   const fails = [];
   const targetBytes = Math.max(1, parseInt(targetKb, 10) || 0) * 1024;
@@ -679,7 +688,7 @@ async function imagesCompressToSize({ files, targetKb, format, overwrite, output
 // Catches same image at different resolutions / formats / minor edits.
 async function imagesDedup(event, { paths, threshold }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   if (!Array.isArray(paths) || paths.length < 2) return { ok: false, error: 'need ≥2 files' };
   const maxDist = typeof threshold === 'number' ? Math.max(0, Math.min(64, threshold)) : 8;
 
@@ -763,7 +772,7 @@ async function laplacianVariance(sharp, p) {
 
 async function imagesGroupSimilar(event, { paths, threshold }) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   if (!Array.isArray(paths) || paths.length < 2) return { ok: false, error: 'need ≥2 files' };
   const maxDist = typeof threshold === 'number' ? Math.max(0, Math.min(64, threshold)) : 10;
   const pathMod = require('path');
@@ -1020,7 +1029,7 @@ function placeImage(filePath, targetDir, copy) {
 
 async function imagesOrganize(event, { files, root, pattern, copy } = {}) {
   const sharp = getSharp();
-  if (!sharp) return { ok: false, error: 'sharp not available' };
+  if (!sharp) return { ok: false, error: sharpNotAvailableMsg() };
   if (!Array.isArray(files) || !files.length) return { ok: false, error: 'no files' };
   if (!root) return { ok: false, error: 'no destination root' };
   const safeSend = (ch, data) => busSafeSend(event.sender, ch, data);
@@ -1049,7 +1058,7 @@ async function imagesOrganizeAuto({ filePath } = {}) {
   if (!filePath || !fs.existsSync(filePath)) return { ok: false, moved: false, error: 'file not found', path: filePath };
   if (!IMAGE_ORG_EXT.test(filePath)) return { ok: true, moved: false, skipped: 'non-image', path: filePath };
   const sharp = getSharp();
-  if (!sharp) return { ok: false, moved: false, error: 'sharp not available', path: filePath };
+  if (!sharp) return { ok: false, moved: false, error: sharpNotAvailableMsg(), path: filePath };
   const root = cfg.image_library_root || cfg.download_folder;
   try {
     const info = await imageCaptureInfo(sharp, filePath);
@@ -1083,7 +1092,13 @@ module.exports = {
     { channel: 'images:replaceColor',   method: 'POST', path: '/api/images/replaceColor',    fn: 'imagesReplaceColor',   args: body => [body] },
     { channel: 'images:removeBgColor',  method: 'POST', path: '/api/images/removeBgColor',   fn: 'imagesRemoveBgColor',  args: body => [body] },
     { channel: 'images:applyEffects',   method: 'POST', path: '/api/images/applyEffects',    fn: 'imagesApplyEffects',   args: body => [body] },
-    { channel: 'images:applyPipeline',  method: 'POST', path: '/api/images/applyPipeline',   fn: 'imagesApplyPipeline',  args: body => [body] },
+    // maxBodyBytes: `inputData` (a flattened annotate-canvas PNG,
+    // base64-encoded — +33% over raw bytes) can exceed the generic 10MB
+    // JSON body cap for a high-resolution photo — found live (save silently
+    // hung forever: the server dropped the oversized request's connection
+    // with no response ever sent, and the client had no error handling for
+    // that either — see renderer.js's confirmImgSave for that other half).
+    { channel: 'images:applyPipeline',  method: 'POST', path: '/api/images/applyPipeline',   fn: 'imagesApplyPipeline',  args: body => [body], maxBodyBytes: 50 * 1024 * 1024 },
     { channel: 'images:watermark',      method: 'POST', path: '/api/images/watermark',       fn: 'imagesWatermark',      args: body => [body] },
     { channel: 'images:compressToSize', method: 'POST', path: '/api/images/compressToSize',  fn: 'imagesCompressToSize', args: body => [body] },
     { channel: 'images:dedup',          method: 'POST', path: '/api/images/dedup',           fn: 'imagesDedup',          args: (body, sender) => [{ sender }, body] },

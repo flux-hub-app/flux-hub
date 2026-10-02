@@ -33,7 +33,7 @@
   "nzb_target_unconfigured": "Inoltro NZB non configurato — vedi Impostazioni → Integrazioni",
   "torrent_copy_magnet": "Copia magnet",
   "torrent_queued_short": "Aggiungi alla coda",
-  "subs_title": "Sottoscrizioni",
+  "subs_title": "Sottoscrizioni attive",
   "subs_add": "Aggiungi",
   "subs_help": "Segui una ricerca — FLUX la controlla periodicamente (Impostazioni → Scheduler) e accoda automaticamente i nuovi risultati non ancora presi. Per titoli senza un feed RSS pronto (per quelli vedi l'auto-download RSS).",
   "subs_modal_title": "Aggiungi sottoscrizione",

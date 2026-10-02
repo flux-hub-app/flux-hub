@@ -6,6 +6,8 @@
         content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; img-src 'self' data: https: http: file:; media-src 'self' https: http: blob: file:; connect-src 'self' https: http: file: blob: data:" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FLUX Hub</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/icon@32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="../assets/icon@16.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Syne:wght@600;800&family=Audiowide&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
@@ -15,7 +17,7 @@
        finishes its initialisation phase (i18n + Lucide + binding all tabs).
        Removed by the JS at the end of DOMContentLoaded. -->
   <div id="splash" class="splash">
-    <img class="splash-logo" src="../assets/icon-mark.svg" alt="FLUX" />
+    <img class="splash-logo" src="../assets/icon-mark.svg" alt="FLUX" width="48" height="49" />
     <div class="splash-spinner"></div>
     <div class="splash-msg">Loading…</div>
   </div>
@@ -181,8 +183,9 @@
       </div>
     </header>
   <main class="content">
-    <!-- UPDATER BANNER -->
-    <div id="updater-banner" class="updater-banner hidden">
+    <!-- UPDATER BANNER — electron-updater/GitHub Releases self-update, N/A
+         for a Docker image (there's nothing to "restart & install" into). -->
+    <div id="updater-banner" class="updater-banner hidden" data-desktop-only>
       <span id="updater-banner-text"></span>
       <div class="updater-banner-actions">
         <button class="btn btn-sm btn-primary" id="updater-download-btn" data-i18n="updater_download">Download</button>
@@ -259,6 +262,21 @@
         <h1 data-i18n="torrent_title">Torrent Search</h1>
         <p class="tab-sub" data-i18n="torrent_sub">Search across enabled sources</p>
       </div>
+
+      <!-- Subscriptions — "follow a search", periodic auto-download for
+           titles with no ready-made RSS feed (RSS's own auto-download already
+           covers those). Fires from the scheduler, same as RSS auto-download. -->
+      <div class="xtract-card subs-card is-enabled">
+        <div class="subs-card-head">
+          <div class="subs-card-head-text">
+            <h3 class="xtract-card-title" data-i18n="subs_title">Active subscriptions</h3>
+            <p class="xtract-card-help" data-i18n="subs_help">Follow a search — FLUX checks it periodically (Settings → Scheduler) and auto-queues new, not-yet-grabbed matches. For titles without a ready-made RSS feed (see RSS's own auto-download for those).</p>
+          </div>
+          <button type="button" class="btn btn-primary subs-add-btn" id="subs-add-btn" data-lucide-icon="plus" data-i18n="subs_add">Add</button>
+        </div>
+        <ul class="remote-list subs-grid" id="subs-list"></ul>
+      </div>
+
       <div class="search-row input-zone">
         <input type="text" id="torrent-query" class="search-input" data-i18n-ph="torrent_placeholder" placeholder="Search title..." autocomplete="off" />
         <button class="btn btn-primary" id="torrent-search-btn" data-lucide-icon="search" data-i18n="torrent_search">Search</button>
@@ -285,17 +303,6 @@
         </div>
       </div>
       <div id="torrent-log" class="activity-log"></div>
-
-      <!-- Subscriptions — "follow a search", periodic auto-download for
-           titles with no ready-made RSS feed (RSS's own auto-download already
-           covers those). Fires from the scheduler, same as RSS auto-download. -->
-      <hr class="xtract-card-divider" />
-      <div class="subs-header">
-        <h3 class="remote-subtitle" data-i18n="subs_title">Subscriptions</h3>
-        <button type="button" class="btn-icon" id="subs-add-btn" title="Add" data-i18n-title="subs_add" data-lucide-icon="plus"></button>
-      </div>
-      <p class="xtract-card-help" data-i18n="subs_help">Follow a search — FLUX checks it periodically (Settings → Scheduler) and auto-queues new, not-yet-grabbed matches. For titles without a ready-made RSS feed (see RSS's own auto-download for those).</p>
-      <ul class="remote-list" id="subs-list"></ul>
     </section>
 
     <!-- Subscriptions — add modal. Kept minimal: query + optional preferred
@@ -684,8 +691,8 @@
 
         <!-- Group 4: current-file actions (moved up from file-info area) -->
         <button class="btn-icon" id="tag-file-play-btn" title="Play" data-i18n-title="tag_play_file" data-lucide-icon="play" disabled></button>
-        <button class="btn-icon" id="tag-file-folder-btn" title="Open folder" data-i18n-title="tag_open_folder" data-lucide-icon="folder-open" disabled></button>
-        <button class="btn-icon hidden" id="tag-file-lrc-btn" title="Open lyrics" data-i18n-title="tag_open_lrc" data-lucide-icon="list"></button>
+        <button class="btn-icon" id="tag-file-folder-btn" title="Open folder" data-i18n-title="tag_open_folder" data-lucide-icon="folder-open" disabled data-desktop-only></button>
+        <button class="btn-icon hidden" id="tag-file-lrc-btn" title="Open lyrics" data-i18n-title="tag_open_lrc" data-lucide-icon="list" data-desktop-only></button>
 
         <!-- Count + loading indicator (merged) -->
         <span id="tag-file-count" class="tag-file-count">—</span>
@@ -1395,7 +1402,7 @@
               <p class="img-card-help" data-i18n="images_pdf_help">Bundle the loaded images into a single PDF, one image per page. Page size is A4 and each image is centred at its natural aspect — useful for delivering screenshot decks or photo contact sheets.</p>
               <div class="img-row">
                 <span class="img-field-spacer"></span>
-                <button class="btn-icon btn-icon-primary img-card-apply" id="img-pdf-btn" data-lucide-icon="file-text" data-i18n-title="images_pdf_btn" title="Build PDF" disabled></button>
+                <button class="btn-icon btn-icon-primary img-card-apply" id="img-pdf-btn" data-lucide-icon="file-text" data-i18n-title="images_pdf_btn" title="Build PDF" disabled data-desktop-only></button>
               </div>
             </div>
             <div class="img-card">
@@ -1470,7 +1477,7 @@
              sub-view (audio → mic; video → monitor; image → camera). The
              label span stays for that function but is visually hidden
              (icon-only toolbar). Opens #xtract-capture-modal. -->
-        <button class="btn-icon" id="xtract-capture-btn" data-lucide-icon="camera" data-i18n-title="xtract_capture_screenshot" title="Take screenshot">
+        <button class="btn-icon" id="xtract-capture-btn" data-lucide-icon="camera" data-i18n-title="xtract_capture_screenshot" title="Take screenshot" data-desktop-only>
           <span id="xtract-capture-label" class="visually-hidden" data-i18n="xtract_capture_screenshot">Screenshot</span>
         </button>
         <!-- Clear: unloads the current file. Always visible, disabled until
@@ -1517,10 +1524,14 @@
                file is loaded. WaveSurfer.js (renderer/vendor/wavesurfer.esm.js). -->
           <div class="trim-editor hidden" id="trim-editor">
             <!-- Video preview: visible only when an input video is loaded.
-                 No native controls — playback toggles via the trim-play-btn
-                 below the waveform. WaveSurfer attaches via `media:` so
-                 the audio waveform + region stay in sync with video.currentTime. -->
-            <video id="xtract-video-preview" class="trim-video hidden" preload="auto" playsinline></video>
+                 Native `controls` attribute is ALWAYS on (owner preference —
+                 tried a dedicated below-video seek bar first, reverted:
+                 native controls auto-hide on their own when idle/not
+                 hovering, which is all that was actually wanted) — gives
+                 play/pause/seek/volume/fullscreen for free via the exact
+                 same Range-based streaming normal playback already uses,
+                 with or without WaveSurfer's waveform also present. -->
+            <video id="xtract-video-preview" class="trim-video hidden" controls preload="auto" playsinline></video>
             <!-- GIF preview: <video> doesn't render animated GIFs in any
                  browser; <img> does, and the GIF loops automatically. Shown
                  only when the input file extension is .gif. -->
@@ -2098,7 +2109,7 @@
             <div class="folder-row">
               <input type="text" id="cfg-folder" class="search-input" readonly />
               <button class="btn btn-sm" id="cfg-folder-btn" data-i18n="settings_browse">Browse</button>
-              <button class="btn btn-sm" id="cfg-folder-open" data-i18n="settings_open">Open</button>
+              <button class="btn btn-sm" id="cfg-folder-open" data-i18n="settings_open" data-desktop-only>Open</button>
             </div>
           </div>
           <div class="field-group toggle-group">
@@ -2129,7 +2140,7 @@
             <label class="field-label" data-i18n="settings_show_logs">Show in-page activity logs</label>
             <label class="toggle"><input type="checkbox" id="cfg-show-logs" /><span class="toggle-track"></span></label>
           </div>
-          <div class="field-group toggle-group" id="settings-autoupdate-row">
+          <div class="field-group toggle-group" id="settings-autoupdate-row" data-desktop-only>
             <label class="field-label" data-i18n="settings_autoupdate">Check for updates on startup</label>
             <label class="toggle"><input type="checkbox" id="cfg-autoupdate" /><span class="toggle-track"></span></label>
           </div>
@@ -2137,7 +2148,7 @@
             <label class="field-label" data-i18n="settings_version">Version</label>
             <div class="settings-version-row">
               <span class="settings-version-text" id="settings-version-text">v1.0.0</span>
-              <button type="button" class="btn btn-ghost btn-sm" id="settings-check-updates" data-i18n="settings_check_now">Check now</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="settings-check-updates" data-i18n="settings_check_now" data-desktop-only>Check now</button>
               <span class="settings-update-msg" id="settings-update-msg"></span>
             </div>
           </div>
@@ -2406,29 +2417,34 @@
 
         <ul class="remote-list" id="remote-whitelist-list"></ul>
 
-        <hr class="remote-divider" />
+        <!-- Mini-server LAN (port 8765, main.js's startLanServer) is
+             deliberately desktop-only — never moved server-side, the real
+             web UI makes it redundant there (see design history). -->
+        <div data-desktop-only>
+          <hr class="remote-divider" />
 
-        <h4 class="remote-subtitle" data-i18n="remote_lan_title">Server LAN</h4>
-        <p style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px" data-i18n="remote_lan_desc">Solo rete locale — mai raggiungibile da internet. Pairing via QR o PIN manuale.</p>
-        <div class="field-group toggle-group">
-          <label class="field-label" data-i18n="remote_lan_enable">Attiva server LAN</label>
-          <label class="toggle"><input type="checkbox" id="remote-lan-enabled" /><span class="toggle-track"></span></label>
-        </div>
-        <div class="field-group">
-          <label class="field-label" data-i18n="remote_lan_port">Porta</label>
-          <input type="number" id="remote-lan-port" class="search-input plain-input" style="max-width:120px" min="1024" max="65535" />
-        </div>
-        <div class="field-group">
-          <button type="button" class="btn btn-primary btn-sm" id="remote-lan-qr-btn" data-lucide-icon="qr-code" data-i18n="remote_generate_qr">Genera QR</button>
-        </div>
-        <div id="remote-lan-pairing" class="remote-lan-pairing hidden">
-          <img id="remote-lan-qr-img" alt="QR pairing" />
-          <div class="remote-lan-pairing-info">
-            <span id="remote-lan-url" class="remote-lan-url"></span>
-            <span id="remote-lan-pin" class="remote-lan-pin"></span>
+          <h4 class="remote-subtitle" data-i18n="remote_lan_title">Server LAN</h4>
+          <p style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px" data-i18n="remote_lan_desc">Solo rete locale — mai raggiungibile da internet. Pairing via QR o PIN manuale.</p>
+          <div class="field-group toggle-group">
+            <label class="field-label" data-i18n="remote_lan_enable">Attiva server LAN</label>
+            <label class="toggle"><input type="checkbox" id="remote-lan-enabled" /><span class="toggle-track"></span></label>
           </div>
+          <div class="field-group">
+            <label class="field-label" data-i18n="remote_lan_port">Porta</label>
+            <input type="number" id="remote-lan-port" class="search-input plain-input" style="max-width:120px" min="1024" max="65535" />
+          </div>
+          <div class="field-group">
+            <button type="button" class="btn btn-primary btn-sm" id="remote-lan-qr-btn" data-lucide-icon="qr-code" data-i18n="remote_generate_qr">Genera QR</button>
+          </div>
+          <div id="remote-lan-pairing" class="remote-lan-pairing hidden">
+            <img id="remote-lan-qr-img" alt="QR pairing" />
+            <div class="remote-lan-pairing-info">
+              <span id="remote-lan-url" class="remote-lan-url"></span>
+              <span id="remote-lan-pin" class="remote-lan-pin"></span>
+            </div>
+          </div>
+          <ul class="remote-list" id="remote-lan-devices-list"></ul>
         </div>
-        <ul class="remote-list" id="remote-lan-devices-list"></ul>
       </div>
 
       <!-- Music Recognition -->
@@ -2681,6 +2697,26 @@
       </div>
     </div>
 
+    <!-- Preview-remux modal — shown when Chromium's own player can't decode
+         the loaded file (old .avi/XviD, some WebM VP9+Opus combos, etc.).
+         FLUX transcodes a throwaway preview copy with ffmpeg in the
+         background so the editor still works; the original file on disk is
+         never touched, and the real Save/pipeline always operates on it,
+         never on this temp copy. Cancel kills the ffmpeg process server-
+         side and falls back to typing times manually (same fallback as a
+         genuine decode failure) — added after real large-file testing
+         showed no way out of a long conversion otherwise. -->
+    <div id="xtract-preview-remux-modal" class="modal hidden">
+      <div class="modal-box">
+        <h3 class="modal-title"><span data-lucide-icon="refresh-cw"></span> <span data-i18n="xtract_preview_remux_title">Preparing preview</span></h3>
+        <p class="xtract-card-help" data-i18n="xtract_preview_remux_help">This file's format isn't supported by the browser preview. FLUX is converting a temporary copy so you can still trim and edit it — your original file is untouched. This can take a while for large files.</p>
+        <div class="progress-bar-bg" id="xtract-preview-remux-progress"><div class="progress-bar"></div><span class="progress-bar-text">0%</span></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="xtract-preview-remux-cancel" data-i18n="downloads_cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Subtitle search modal (OpenSubtitles).
          Triggered from XTRACT "Find online" button. Lookup by file-hash
          (moviehash, 64-bit checksum of first+last 64KB of the video) or
@@ -2818,7 +2854,7 @@
 
     <!-- Software-update popup — shown when an update is found (startup auto-check)
          or after a manual "Check now". Replaces the old inline banner. -->
-    <div id="updater-modal" class="modal hidden" data-dismissible="true">
+    <div id="updater-modal" class="modal hidden" data-dismissible="true" data-desktop-only>
       <div class="modal-box">
         <h3 class="modal-title"><span data-lucide-icon="refresh-cw"></span> <span data-i18n="updater_modal_title">Software update</span></h3>
         <p class="updater-modal-msg" id="updater-modal-msg"></p>
@@ -2866,8 +2902,8 @@
         <div class="image-preview-meta" id="image-preview-meta"></div>
         <div class="modal-actions">
           <button class="btn btn-ghost" id="image-preview-close" data-i18n="rss_close">Close</button>
-          <button class="btn btn-ghost" id="image-preview-folder" data-lucide-icon="folder-open"><span data-i18n="downloads_open_folder">Open folder</span></button>
-          <button class="btn btn-primary" id="image-preview-open-default" data-lucide-icon="external-link"><span data-i18n="image_preview_open_default">Open with system default</span></button>
+          <button class="btn btn-ghost" id="image-preview-folder" data-lucide-icon="folder-open" data-desktop-only><span data-i18n="downloads_open_folder">Open folder</span></button>
+          <button class="btn btn-primary" id="image-preview-open-default" data-lucide-icon="external-link" data-desktop-only><span data-i18n="image_preview_open_default">Open with system default</span></button>
         </div>
       </div>
     </div>
@@ -2879,7 +2915,7 @@
            * Stage 2 (recorder): shown for audio always; for video after a
              source is selected. Image jumps straight to save after picking.
          Renderer.js drives the stage swap. -->
-    <div id="xtract-capture-modal" class="modal hidden" data-dismissible="true">
+    <div id="xtract-capture-modal" class="modal hidden" data-dismissible="true" data-desktop-only>
       <div class="modal-box modal-box-lg">
         <h3 class="modal-title">
           <span data-lucide-icon="camera"></span>

@@ -131,7 +131,7 @@
   // site in renderer.js is untouched: it still awaits `string|null`
   // (pickFile/pickFolder) or `string[]` (pickFiles/pickImages) exactly as
   // on desktop — only what's behind that Promise changed.
-  let pickerState = null; // { mode, multi, resolve, cwd }
+  let pickerState = null; // { mode, multi, resolve, cwd, parent, history, future }
   function ensureFilePickerDom() {
     if (document.getElementById('flux-filepicker')) return;
     const wrap = document.createElement('div');
@@ -139,9 +139,14 @@
     wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:99998;font-family:system-ui,sans-serif;';
     wrap.innerHTML = `
       <div style="background:#1c1c1e;color:#eee;width:min(640px,92vw);max-height:80vh;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.5);">
-        <div style="padding:12px 16px;border-bottom:1px solid #333;display:flex;align-items:center;gap:8px;">
-          <button id="fp-up" style="background:#333;color:#eee;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;">↑</button>
-          <div id="fp-path" style="flex:1;font-size:13px;opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+        <div style="padding:10px 16px 6px;border-bottom:1px solid #333;">
+          <div style="display:flex;align-items:center;gap:4px;">
+            <button id="fp-home" class="btn-icon" data-lucide-icon="home" title="Home"></button>
+            <button id="fp-back" class="btn-icon" data-lucide-icon="arrow-left" title="Back" disabled></button>
+            <button id="fp-forward" class="btn-icon" data-lucide-icon="arrow-right" title="Forward" disabled></button>
+            <button id="fp-up" class="btn-icon" data-lucide-icon="arrow-up" title="Up one level" disabled></button>
+          </div>
+          <div id="fp-breadcrumb" style="display:flex;align-items:center;gap:1px;overflow-x:auto;white-space:nowrap;font-size:13px;margin-top:8px;"></div>
         </div>
         <div id="fp-list" style="flex:1;overflow:auto;padding:6px;min-height:200px;"></div>
         <div id="fp-error" style="padding:0 16px;color:#f66;font-size:13px;display:none;"></div>
@@ -151,10 +156,84 @@
         </div>
       </div>`;
     document.body.appendChild(wrap);
+    // Lucide icons for the nav buttons above are rendered by the SAME
+    // applyLucideIcons() the rest of the app uses (global function, defined
+    // in renderer.js — safe to call here since this DOM is only ever built
+    // the first time a picker opens, well after renderer.js has loaded).
+    applyLucideIcons(wrap);
     wrap.querySelector('#fp-cancel').addEventListener('click', () => closeFilePicker(pickerState?.mode === 'files' || pickerState?.mode === 'images' ? [] : null));
     wrap.querySelector('#fp-select').addEventListener('click', onPickerSelect);
-    wrap.querySelector('#fp-up').addEventListener('click', () => { if (pickerState?.parent) browseTo(pickerState.parent); });
+    wrap.querySelector('#fp-home').addEventListener('click', () => navigateTo(null));
+    wrap.querySelector('#fp-up').addEventListener('click', () => { if (pickerState?.parent) navigateTo(pickerState.parent); });
+    wrap.querySelector('#fp-back').addEventListener('click', goBack);
+    wrap.querySelector('#fp-forward').addEventListener('click', goForward);
     wrap.addEventListener('click', e => { if (e.target === wrap) closeFilePicker(pickerState?.mode === 'files' || pickerState?.mode === 'images' ? [] : null); });
+  }
+  // Normal navigation (clicking a folder row, Home, Up, a breadcrumb
+  // segment) — records the CURRENT folder onto the back-stack and clears
+  // the forward-stack (the standard "new navigation invalidates redo"
+  // rule any browser history follows). goBack/goForward below call
+  // browseTo() directly instead, deliberately bypassing this.
+  function navigateTo(path) {
+    if (pickerState.cwd !== undefined && pickerState.cwd !== null) {
+      pickerState.history.push(pickerState.cwd);
+      pickerState.future = [];
+    }
+    browseTo(path);
+  }
+  function goBack() {
+    if (!pickerState?.history.length) return;
+    const prev = pickerState.history.pop();
+    pickerState.future.push(pickerState.cwd);
+    browseTo(prev);
+  }
+  function goForward() {
+    if (!pickerState?.future.length) return;
+    const next = pickerState.future.pop();
+    pickerState.history.push(pickerState.cwd);
+    browseTo(next);
+  }
+  function updateNavButtons() {
+    const wrap = document.getElementById('flux-filepicker');
+    if (!wrap) return;
+    const backBtn = wrap.querySelector('#fp-back');
+    const fwdBtn  = wrap.querySelector('#fp-forward');
+    const upBtn   = wrap.querySelector('#fp-up');
+    if (backBtn) backBtn.disabled = !pickerState.history.length;
+    if (fwdBtn)  fwdBtn.disabled  = !pickerState.future.length;
+    if (upBtn)   upBtn.disabled   = !pickerState.parent;
+  }
+  // Clickable path segments (root + each folder name) — every segment
+  // except the current (last) one jumps straight there via navigateTo(),
+  // same as any desktop file manager's breadcrumb bar.
+  function renderBreadcrumb(fullPath) {
+    const bc = document.querySelector('#flux-filepicker #fp-breadcrumb');
+    if (!bc) return;
+    bc.innerHTML = '';
+    const segStyle = 'padding:3px 6px;border-radius:5px;';
+    const addSeg = (label, path, isLast) => {
+      const seg = document.createElement('span');
+      seg.textContent = label.length > 15 ? label.slice(0, 15) + '…' : label;
+      seg.title = label;
+      seg.style.cssText = segStyle + (isLast ? 'color:#fff;font-weight:600;' : 'cursor:pointer;opacity:.75;');
+      if (!isLast) {
+        seg.addEventListener('click', () => navigateTo(path));
+        seg.addEventListener('mouseenter', () => seg.style.background = '#2a2a2c');
+        seg.addEventListener('mouseleave', () => seg.style.background = '');
+      }
+      bc.appendChild(seg);
+    };
+    const parts = fullPath.split('/').filter(Boolean); // POSIX path — leading '/' yields one empty entry, filtered
+    addSeg('/', '/', parts.length === 0);
+    let acc = '';
+    parts.forEach((part, i) => {
+      acc += '/' + part;
+      const sep = document.createElement('span');
+      sep.textContent = '›';
+      sep.style.cssText = 'opacity:.35;padding:0 1px;';
+      bc.appendChild(sep);
+      addSeg(part, acc, i === parts.length - 1);
+    });
   }
   function closeFilePicker(result) {
     const wrap = document.getElementById('flux-filepicker');
@@ -173,22 +252,26 @@
   async function browseTo(dirPath) {
     const wrap = document.getElementById('flux-filepicker');
     const errEl = wrap.querySelector('#fp-error');
+    const list = wrap.querySelector('#fp-list');
     errEl.style.display = 'none';
+    // Listing a folder is a real round-trip (GET /api/browse) — without this,
+    // the picker sat visually empty for however long that took.
+    list.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:60px 0;"><div class="splash-spinner"></div></div>';
     let data;
-    try { data = await GET(`/api/browse${qs({ path: dirPath })}`); }
-    catch (e) { errEl.textContent = e.message; errEl.style.display = 'block'; return; }
-    if (!data.ok) { errEl.textContent = data.error || 'Cannot open this folder'; errEl.style.display = 'block'; return; }
+    try { data = await GET(`/api/browse${qs({ path: dirPath, exts: pickerState.exts })}`); }
+    catch (e) { errEl.textContent = e.message; errEl.style.display = 'block'; list.innerHTML = ''; return; }
+    if (!data.ok) { errEl.textContent = data.error || 'Cannot open this folder'; errEl.style.display = 'block'; list.innerHTML = ''; return; }
     pickerState.cwd = data.path;
     pickerState.parent = data.parent;
-    wrap.querySelector('#fp-path').textContent = data.path;
-    const list = wrap.querySelector('#fp-list');
+    renderBreadcrumb(data.path);
+    updateNavButtons();
     list.innerHTML = '';
     const rowStyle = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;';
     for (const d of data.dirs) {
       const row = document.createElement('div');
       row.style.cssText = rowStyle;
       row.innerHTML = `<span>📁</span><span>${d.name}</span>`;
-      row.addEventListener('click', () => browseTo(d.path));
+      row.addEventListener('click', () => navigateTo(d.path));
       row.addEventListener('mouseenter', () => row.style.background = '#2a2a2c');
       row.addEventListener('mouseleave', () => row.style.background = '');
       list.appendChild(row);
@@ -199,17 +282,25 @@
         const row = document.createElement('div');
         row.style.cssText = rowStyle;
         row.innerHTML = multi
-          ? `<input type="checkbox" data-path="${f.path.replace(/"/g, '&quot;')}"><span>📄</span><span>${f.name}</span>`
+          ? `<label class="toggle" style="flex-shrink:0"><input type="checkbox" data-path="${f.path.replace(/"/g, '&quot;')}"><span class="toggle-track"></span></label><span>📄</span><span>${f.name}</span>`
           : `<span>📄</span><span>${f.name}</span>`;
         if (!multi) row.addEventListener('click', () => closeFilePicker(f.path));
         list.appendChild(row);
       }
     }
   }
-  function openPicker(mode) {
+  // opts.filters mirrors Electron's native dialog filter shape (already
+  // sent by every pickFile caller in renderer.js, e.g. Xtract Audio/Video/
+  // Image's own audio/video/image extension list) — take the first filter
+  // that isn't the "All files" catch-all and preset the picker to it.
+  function extsFromFilters(opts) {
+    const f = (opts?.filters || []).find(f => !(f.extensions || []).includes('*'));
+    return f ? f.extensions.join(',') : null;
+  }
+  function openPicker(mode, exts) {
     ensureFilePickerDom();
     return new Promise(resolve => {
-      pickerState = { mode, resolve, cwd: null, parent: null };
+      pickerState = { mode, exts, resolve, cwd: null, parent: null, history: [], future: [] };
       const wrap = document.getElementById('flux-filepicker');
       wrap.style.display = 'flex';
       wrap.querySelector('#fp-select').textContent = mode === 'folder' ? 'Select this folder' : 'Select';
@@ -218,7 +309,7 @@
   }
   const DIALOG_STUB = {
     pickFolder:      () => openPicker('folder'),
-    pickFile:        () => openPicker('file'),
+    pickFile:        (opts) => openPicker('file', extsFromFilters(opts)),
     pickFiles:       () => openPicker('files'),
     pickImages:      () => openPicker('images'),
     pickAudioFolder: async ({ recursive = false } = {}) => {
@@ -238,7 +329,7 @@
       resetTOS: () => POST('/api/config/resetTOS'),
     },
     modules: {
-      registry:     () => GET('/api/modules').then(r => ({ version: 1, binaries: r.binaries, modules: r.modules, serverModuleIds: r.serverModuleIds })),
+      registry:     () => GET('/api/modules').then(r => ({ version: 1, binaries: r.binaries, modules: r.modules, serverModuleIds: r.serverModuleIds, tabBinaries: r.tabBinaries })),
       binaryStatus: () => GET('/api/modules').then(r => r.binaryStatus),
     },
     binary: {
@@ -280,11 +371,15 @@
     media: {
       download:         payload => POST('/api/media/download', payload),
       probe:            url     => POST('/api/media/probe', { url }),
-      getStreamUrl:     url     => POST('/api/media/getStreamUrl', { url }),
-      // Not implemented server-side (related-media providers + resolveStreamUrl
-      // are a separate, not-yet-extracted feature — see tracking #26) — stubbed
-      // individually rather than left undefined, since media.* is otherwise real.
-      resolveStreamUrl: payload => { console.warn('[api-http] media.resolveStreamUrl — not available in server mode'); return Promise.resolve({ ok: false, error: 'not available in server mode' }); },
+      getStreamUrl:     (url, kind) => POST('/api/media/getStreamUrl', { url, kind }),
+      // Ported to engine/queue.js + a real REST route (2026-09-29) — was a
+      // stub, but had no Electron dependency at all, same yt-dlp helpers
+      // getStreamUrl above already used. Powers Playlist/topbar-player
+      // playback of a non-direct URL (YouTube watch page, etc.).
+      resolveStreamUrl: ({ url, kind } = {}) => POST('/api/media/resolveStreamUrl', { url, kind }),
+      // Related-media providers (YouTube Innertube/SoundCloud) are a
+      // separate, not-yet-extracted feature — see tracking #26 — genuinely
+      // not implemented server-side yet, unlike resolveStreamUrl above.
       getRelated:       payload => { console.warn('[api-http] media.getRelated — not available in server mode'); return Promise.resolve({ ok: false, error: 'not available in server mode', items: [] }); },
       stop:             payload => POST('/api/media/stop', payload),
       onProgress:       cb => on('media:progress', cb),
@@ -390,6 +485,9 @@
       meta:           payload => POST('/api/xtract/meta', payload),
       normalize:      payload => POST('/api/xtract/normalize', payload),
       applyPipeline:  payload => POST('/api/xtract/applyPipeline', payload),
+      previewRemux:   payload => POST('/api/xtract/previewRemux', payload),
+      cancelPreviewRemux: payload => POST('/api/xtract/cancelPreviewRemux', payload),
+      cleanupPreviewRemux: payload => POST('/api/xtract/cleanupPreviewRemux', payload),
       onProgress:     cb => on('xtract:progress', cb),
     },
     images: {
@@ -514,6 +612,11 @@
       checkPathWritable: p => POST('/api/fs/checkPathWritable', { path: p }),
       exists:            p => GET(`/api/fs/exists${qs({ path: p })}`).then(r => r.exists),
     },
+    // Lets shared renderer.js code branch on desktop vs server where the two
+    // genuinely can't share one code path — e.g. a Playlist file:// URL,
+    // which Electron can load into <audio> but a browser can't fetch.
+    // Absent (falsy) under preload.js, so desktop's own branch is unaffected.
+    isServer: true,
   };
 
   const api = { ...realApi };

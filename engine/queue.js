@@ -381,16 +381,17 @@ function isDrmHost(url) {
   } catch { return false; }
 }
 
-function getStreamUrl(url) {
+// -g needs a SINGLE stream URL — fine for a real muxed (audio+video) format,
+// but most modern YouTube videos (and many other sites) no longer expose
+// one at all: every format is video-ONLY or audio-ONLY (DASH), and a plain
+// <video>/<audio> element can't combine two separate HTTP resources into
+// one playback. kind='audio' sidesteps this entirely (an audio-only format
+// always exists and is a real playable URL); kind='video' tries a muxed
+// format first and, if genuinely none exists, degrades to that same
+// audio-only URL (marked `videoUnavailable`) rather than failing outright —
+// the caller can fall back to an audio-only preview instead of a dead end.
+function ytDlpSingleUrl(ytdlp, args) {
   return new Promise(resolve => {
-    const ytdlp = getYtDlpPath();
-    if (!ytdlp) return resolve({ ok: false, error: 'yt-dlp not bundled' });
-    if (!url || !/^https?:\/\//i.test(url)) return resolve({ ok: false, error: 'invalid URL' });
-
-    // -g returns direct media URLs (one per stream when separate audio/video).
-    // -f best/bestvideo+bestaudio gives a single combined URL when available.
-    const args = ['--no-warnings', '-g', '--no-playlist', '-f', 'best[protocol^=m3u8]/best', url];
-    const px = getYtDlpProxyArg(); if (px) args.unshift('--proxy', px);
     const proc = spawnYtDlp(ytdlp, args);
     let out = '', err = '';
     const timer = setTimeout(() => { try { proc.kill('SIGTERM'); } catch {} }, 15000);
@@ -401,6 +402,59 @@ function getStreamUrl(url) {
       if (code !== 0) return resolve({ ok: false, error: (err || `exit ${code}`).trim().slice(0, 200) });
       const lines = out.trim().split('\n').filter(Boolean);
       resolve({ ok: true, url: lines[0] || null, urls: lines });
+    });
+    proc.on('error', e => { clearTimeout(timer); resolve({ ok: false, error: e.message }); });
+  });
+}
+function getStreamUrl(url, kind = 'video') {
+  const ytdlp = getYtDlpPath();
+  if (!ytdlp) return Promise.resolve({ ok: false, error: 'yt-dlp not bundled' });
+  if (!url || !/^https?:\/\//i.test(url)) return Promise.resolve({ ok: false, error: 'invalid URL' });
+  const px = getYtDlpProxyArg();
+  const audioArgs = ['--no-warnings', '-g', '--no-playlist', '-f', 'bestaudio/best', url];
+  if (px) audioArgs.unshift('--proxy', px);
+  if (kind === 'audio') return ytDlpSingleUrl(ytdlp, audioArgs);
+  const videoArgs = ['--no-warnings', '-g', '--no-playlist', '-f', 'best[protocol^=m3u8]/best', url];
+  if (px) videoArgs.unshift('--proxy', px);
+  return ytDlpSingleUrl(ytdlp, videoArgs).then(r => {
+    if (r.ok) return r;
+    // No muxed format at all for this URL — fall back to audio-only instead
+    // of a hard failure. Caller decides what "videoUnavailable" means for
+    // its own UI (e.g. play audio-only with a toast instead of the video
+    // modal), same idea as the desktop-only "not available" pattern.
+    return ytDlpSingleUrl(ytdlp, audioArgs).then(ar => ar.ok ? { ...ar, videoUnavailable: true } : r);
+  });
+}
+
+// Resolves a non-direct URL (YouTube watch page, podcast portal, etc.) to a
+// playable HTTP media URL — used by the topbar player + Playlist when a URL
+// isn't recognized as direct media by isDirectMediaUrl (renderer.js). Ported
+// verbatim from main.js's media:resolveStreamUrl (2026-09-29) — no Electron
+// dependency, same getYtDlpPath/getYtDlpProxyArg/spawnYtDlp already used by
+// getStreamUrl above. Unlike that one, added a kill timer (same 15s as
+// getStreamUrl) — the original main.js handler never had one, relying on
+// the desktop user being present to notice a hang; a REST call has no such
+// backstop.
+function resolveStreamUrl(url, kind = 'audio') {
+  return new Promise(resolve => {
+    if (!url) return resolve({ ok: false, error: 'No URL provided' });
+    const ytdlp = getYtDlpPath();
+    if (!ytdlp) return resolve({ ok: false, error: 'yt-dlp not available' });
+    const formatSel = kind === 'video' ? 'best[ext=mp4]/best' : 'bestaudio/best';
+    const args = ['--print', 'title', '--print', 'url', '-f', formatSel, '--no-warnings', '--no-playlist', url];
+    const px = getYtDlpProxyArg(); if (px) args.unshift('--proxy', px);
+    const proc = spawnYtDlp(ytdlp, args);
+    let out = '', err = '';
+    const timer = setTimeout(() => { try { proc.kill('SIGTERM'); } catch {} }, 15000);
+    proc.stdout.on('data', d => out += d.toString());
+    proc.stderr.on('data', d => err += d.toString());
+    proc.on('close', code => {
+      clearTimeout(timer);
+      const lines = out.split('\n').map(l => l.trim()).filter(Boolean);
+      const title  = lines.find(l => !/^https?:\/\//i.test(l)) || null;
+      const direct = lines.find(l =>  /^https?:\/\//i.test(l)) || null;
+      if (code === 0 && direct) return resolve({ ok: true, url: direct, title });
+      resolve({ ok: false, error: (err.split('\n').filter(Boolean).pop() || `yt-dlp exit ${code}`).slice(0, 200) });
     });
     proc.on('error', e => { clearTimeout(timer); resolve({ ok: false, error: e.message }); });
   });
@@ -533,7 +587,7 @@ module.exports = {
   loadQueue, saveQueue, newQueueId,
   activeMediaProcs, isStopRequested, setStopRequested, killProcessTree,
   runMediaDownload, runMediaDownloadRetry, runQueue,
-  isDrmHost, getStreamUrl, probeMedia, checkUrl,
+  isDrmHost, getStreamUrl, resolveStreamUrl, probeMedia, checkUrl,
   RELATED_MAX_ITEMS, relatedFromSearch,
   // Only load/checkUrl declared here — save/clear/run/importList each have
   // real per-transport divergence (REST-only input validation on save, or

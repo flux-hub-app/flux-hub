@@ -33,7 +33,12 @@ function wireRest(on, modules, { readJSONBody, readBinaryBody, sendJSON }) {
         } else if (route.method === 'GET' || route.method === 'DELETE') {
           body = Object.fromEntries(query.entries());
         } else {
-          body = await readJSONBody(req);
+          // route.maxBodyBytes: optional per-route override of the default
+          // 10MB JSON body cap (readJSONBody(req) alone always uses that
+          // default) — images:applyPipeline is the first user, its
+          // `inputData` (a flattened annotate-canvas PNG, base64-encoded)
+          // can exceed 10MB for a high-resolution photo.
+          body = await readJSONBody(req, route.maxBodyBytes);
         }
         const result = await mod[route.fn](...route.args(body, bus.getBroadcastSender()));
         sendJSON(res, 200, result);

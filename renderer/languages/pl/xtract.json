@@ -159,6 +159,7 @@
   "xtract_av_reset_all": "Cofnij wszystkie zmiany",
   "xtract_av_save": "Zapisz",
   "xtract_av_save_modal_title": "Zapisz",
+  "xtract_waveform_too_large": "Plik powyżej 1 GB — podgląd przebiegu fali niedostępny, użyj pól czasu poniżej, aby przyciąć",
   "xtract_normalize_enable": "Włącz normalizację",
   "xtract_normalize_target": "Cel (LUFS)",
   "xtract_image_no_edits": "Brak zmian do zapisania",

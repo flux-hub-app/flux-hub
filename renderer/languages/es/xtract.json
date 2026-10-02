@@ -159,6 +159,7 @@
   "xtract_av_reset_all": "Restablecer todos los cambios",
   "xtract_av_save": "Guardar",
   "xtract_av_save_modal_title": "Guardar",
+  "xtract_waveform_too_large": "Archivo de más de 1 GB — vista previa de forma de onda no disponible, usa los campos de tiempo de abajo para recortar",
   "xtract_normalize_enable": "Activar normalización",
   "xtract_normalize_target": "Objetivo (LUFS)",
   "xtract_image_no_edits": "Nada que guardar",

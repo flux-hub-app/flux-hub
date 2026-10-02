@@ -15,6 +15,7 @@
   "nav_xtract_soon": "Prossimamente",
   "sidebar_toggle": "Comprimi sidebar",
   "preview_toast_error_title": "Anteprima fallita",
+  "preview_video_unavailable_audio_only": "Nessun flusso video+audio combinato disponibile per questo URL — riproduzione solo audio.",
   "toast_generic_error_title": "Errore",
   "nav_playlist": "Playlist",
   "downloads_recent": "Download recenti",
